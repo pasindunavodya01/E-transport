@@ -61,7 +61,7 @@ export default function PassengerDashboard({ route, navigation }) {
         <Text style={styles.welcomeText}>Welcome, {user?.name || 'Passenger'}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Personal Info</Text>
           <View style={styles.infoRow}>

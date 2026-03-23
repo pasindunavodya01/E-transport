@@ -107,6 +107,7 @@ export default function DriverDashboard({ route, navigation }) {
       </View>
 
       <FlatList
+        style={{ flex: 1 }}
         data={passengers}
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.content}
