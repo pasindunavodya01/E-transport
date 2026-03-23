@@ -60,6 +60,12 @@ export default function DriverDashboard() {
     fetchPassengers();
   }, []);
 
+  const getTodayStr = () => {
+    const d = new Date();
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return (new Date(d - tzOffset)).toISOString().split('T')[0];
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userRole');
@@ -237,9 +243,20 @@ export default function DriverDashboard() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {passengers.map((passenger) => (
-                    <div key={passenger._id} className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-brand">
-                      <h4 className="font-semibold text-gray-900 text-lg mb-3">{passenger.name}</h4>
+                  {passengers.map((passenger) => {
+                    const todayAbsence = passenger.absences?.find(a => a.date === getTodayStr());
+                    const isAbsentToday = !!todayAbsence;
+
+                    return (
+                    <div key={passenger._id} className={`bg-white p-5 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 border-l-4 ${isAbsentToday ? 'border-l-red-500 bg-red-50/20' : 'border-l-brand'}`}>
+                      <div className="flex items-start justify-between mb-3">
+                        <h4 className={`font-semibold text-lg ${isAbsentToday ? 'text-red-700' : 'text-gray-900'}`}>{passenger.name}</h4>
+                        {isAbsentToday && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded uppercase tracking-wider">
+                            Absent Today {todayAbsence.period !== 'Both' && `(${todayAbsence.period})`}
+                          </span>
+                        )}
+                      </div>
                       <div className="space-y-2">
                         <p className="flex items-center gap-3 text-gray-600 text-sm"><Phone className="w-4 h-4 text-gray-400" /> {passenger.phoneNumber}</p>
                         <div className="flex items-center gap-2 text-gray-600">
@@ -268,9 +285,22 @@ export default function DriverDashboard() {
                         )}
                       </div>
                     )}
+
+                    {passenger.absences && passenger.absences.filter(a => a.date > getTodayStr()).length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Upcoming Absences</p>
+                        <div className="flex flex-wrap gap-2">
+                          {passenger.absences.filter(a => a.date > getTodayStr()).sort((a,b) => a.date.localeCompare(b.date)).map(a => (
+                            <span key={a.date} className="px-2 py-1 bg-orange-50 text-orange-700 border border-orange-100 rounded text-xs font-medium">
+                              {new Date(a.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} {a.period !== 'Both' && `(${a.period})`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}  </div>
+              )})}  </div>
               )}
             </div>
             

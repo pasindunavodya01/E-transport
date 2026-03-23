@@ -20,6 +20,10 @@ const userSchema = new mongoose.Schema({
   chosenVehicleNumber: { type: String },
   pickupLocation: { type: String },
   dropoffLocation: { type: String },
+  absences: [{
+    date: { type: String },
+    period: { type: String, enum: ['Morning', 'Evening', 'Both'], default: 'Both' }
+  }],
   
   createdAt: { type: Date, default: Date.now }
 });

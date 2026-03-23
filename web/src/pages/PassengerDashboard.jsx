@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, MapPin, Hash, User, Phone, Mail } from 'lucide-react';
+import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff } from 'lucide-react';
 
 export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
@@ -9,6 +9,10 @@ export default function PassengerDashboard() {
   const [loading, setLoading] = useState(true);
   const [isEditingLocations, setIsEditingLocations] = useState(false);
   const [locationData, setLocationData] = useState({ pickupLocation: '', dropoffLocation: '' });
+  const [absences, setAbsences] = useState([]);
+  const [selectedDateType, setSelectedDateType] = useState('Today');
+  const [specificDate, setSpecificDate] = useState('');
+  const [newAbsencePeriod, setNewAbsencePeriod] = useState('Both');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,6 +33,7 @@ export default function PassengerDashboard() {
           pickupLocation: data.pickupLocation || '',
           dropoffLocation: data.dropoffLocation || ''
         });
+        setAbsences(data.absences || []);
 
         // Fetch assigned driver details
         try {
@@ -71,6 +76,71 @@ export default function PassengerDashboard() {
       console.error('Error updating locations', error);
       alert('Failed to update locations');
     }
+  };
+
+  const getDateStr = (offsetDays = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return (new Date(d - tzOffset)).toISOString().split('T')[0];
+  };
+
+  const addAbsence = async (dateStr, periodStr) => {
+    const existingIndex = absences.findIndex(a => a.date === dateStr);
+    let newAbsences = [...absences];
+    if (existingIndex >= 0) {
+      newAbsences[existingIndex] = { date: dateStr, period: periodStr };
+    } else {
+      newAbsences.push({ date: dateStr, period: periodStr });
+    }
+    
+    newAbsences.sort((a,b) => a.date.localeCompare(b.date));
+    
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-absences`, {
+        absences: newAbsences
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProfile(data);
+      setAbsences(data.absences || []);
+    } catch (error) {
+      console.error('Error updating absences:', error);
+      alert('Failed to update absences');
+    }
+  };
+
+  const removeAbsence = async (dateStr) => {
+    const newAbsences = absences.filter(a => a.date !== dateStr);
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-absences`, {
+        absences: newAbsences
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProfile(data);
+      setAbsences(data.absences || []);
+    } catch (error) {
+      console.error('Error removing absence:', error);
+      alert('Failed to remove absence');
+    }
+  };
+
+  const handleSubmitAbsence = () => {
+    let dateStr = '';
+    if (selectedDateType === 'Today') dateStr = getDateStr(0);
+    else if (selectedDateType === 'Tomorrow') dateStr = getDateStr(1);
+    else {
+      if (!specificDate) {
+        alert('Please select a specific date.');
+        return;
+      }
+      dateStr = specificDate;
+    }
+    addAbsence(dateStr, newAbsencePeriod);
+    setSpecificDate('');
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-light text-brand text-xl">Loading...</div>;
@@ -201,6 +271,107 @@ export default function PassengerDashboard() {
               )}
             </div>
             
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <CalendarOff className="w-5 h-5 text-brand" /> Manage Absences
+                </h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">Let your driver know if you won't be travelling on specific days.</p>
+              
+              <div className="flex flex-col gap-6 mb-8 bg-gray-50 p-6 rounded-xl border border-gray-100">
+                
+                {/* Date Selection */}
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 block mb-3">1. Select Date</label>
+                  <div className="flex flex-wrap gap-3">
+                    <button 
+                      onClick={() => setSelectedDateType('Today')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${selectedDateType === 'Today' ? 'bg-brand text-white border-brand shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Today
+                    </button>
+                    <button 
+                      onClick={() => setSelectedDateType('Tomorrow')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${selectedDateType === 'Tomorrow' ? 'bg-brand text-white border-brand shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Tomorrow
+                    </button>
+                    <button 
+                      onClick={() => setSelectedDateType('Specific')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${selectedDateType === 'Specific' ? 'bg-brand text-white border-brand shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Specific Date
+                    </button>
+                  </div>
+                  {selectedDateType === 'Specific' && (
+                    <div className="mt-3 animate-fade-in">
+                      <input 
+                        type="date" 
+                        value={specificDate}
+                        onChange={(e) => setSpecificDate(e.target.value)}
+                        className="w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand bg-white"
+                        min={getDateStr(0)}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-px bg-gray-200 w-full opacity-50"></div>
+
+                {/* Period Selection */}
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 block mb-3">2. Select Period</label>
+                  <div className="flex flex-wrap gap-3">
+                    <button 
+                      onClick={() => setNewAbsencePeriod('Morning')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${newAbsencePeriod === 'Morning' ? 'bg-orange-100 text-orange-700 border-orange-200 shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Morning Route
+                    </button>
+                    <button 
+                      onClick={() => setNewAbsencePeriod('Evening')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${newAbsencePeriod === 'Evening' ? 'bg-orange-100 text-orange-700 border-orange-200 shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Evening Route
+                    </button>
+                    <button 
+                      onClick={() => setNewAbsencePeriod('Both')}
+                      className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors border ${newAbsencePeriod === 'Both' ? 'bg-orange-100 text-orange-700 border-orange-200 shadow-sm cursor-default' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}
+                    >
+                      Full Day (Both)
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleSubmitAbsence}
+                  className="w-full mt-2 bg-brand text-white py-3.5 rounded-lg font-bold text-base hover:bg-brand-dark transition-colors shadow-md flex items-center justify-center gap-2"
+                >
+                  <CalendarOff className="w-5 h-5" />
+                  Submit Absence
+                </button>
+              </div>
+
+              {absences.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Recorded Absences</h4>
+                  <div className="space-y-2">
+                    {absences.map(absence => (
+                      <div key={absence.date} className="flex justify-between items-center bg-white border border-gray-100 p-2 px-3 rounded text-sm transition-colors hover:border-red-200">
+                        <div>
+                          <span className="font-medium text-gray-800 block">{new Date(absence.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                          <span className="text-xs font-semibold text-orange-600 uppercase tracking-wider">{absence.period} Route{absence.period === 'Both' ? 's' : ''}</span>
+                        </div>
+                        <button onClick={() => removeAbsence(absence.date)} className="text-red-500 hover:text-red-700 font-semibold p-2 rounded-lg hover:bg-red-50 transition-colors">
+                          <LogOut className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>

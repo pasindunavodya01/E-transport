@@ -159,4 +159,30 @@ router.put('/update-locations', verifyToken, async (req, res) => {
   }
 });
 
+// Update passenger absences
+router.put('/update-absences', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { absences } = req.body;
+    
+    // Ensure absences is an array, fallback to empty array
+    const absenceList = Array.isArray(absences) ? absences : [];
+    
+    const passenger = await User.findOneAndUpdate(
+      { uid, role: 'passenger' },
+      { absences: absenceList },
+      { new: true }
+    );
+
+    if (!passenger) {
+      return res.status(404).json({ message: 'Passenger not found' });
+    }
+
+    res.json(passenger);
+  } catch (error) {
+    console.error('[/update-absences] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

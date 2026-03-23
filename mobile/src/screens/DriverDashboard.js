@@ -54,16 +54,34 @@ export default function DriverDashboard({ route, navigation }) {
     }
   };
 
-  const renderPassenger = ({ item }) => (
-    <View style={styles.passengerCard}>
-      <View style={styles.passengerHeader}>
-        <MaterialIcons name="person" size={24} color={Colors.light.primary} />
-        <Text style={styles.passengerName}>{item.name}</Text>
-      </View>
-      <View style={styles.passengerInfo}>
-        <MaterialIcons name="phone" size={16} color="#666" style={styles.iconSpaced} />
-        <Text style={styles.passengerText}>{item.phoneNumber}</Text>
-      </View>
+  const getTodayStr = () => {
+    const d = new Date();
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return (new Date(d - tzOffset)).toISOString().split('T')[0];
+  };
+
+  const renderPassenger = ({ item }) => {
+    const todayAbsence = item.absences?.find(a => a.date === getTodayStr());
+    const isAbsentToday = !!todayAbsence;
+    const upcomingAbsences = item.absences?.filter(a => a.date > getTodayStr()).sort((a,b) => a.date.localeCompare(b.date)) || [];
+
+    return (
+      <View style={[styles.passengerCard, isAbsentToday && styles.passengerCardAbsent]}>
+        <View style={styles.passengerHeaderRow}>
+          <View style={styles.passengerHeader}>
+            <MaterialIcons name="person" size={24} color={isAbsentToday ? 'red' : Colors.light.primary} />
+            <Text style={[styles.passengerName, isAbsentToday && { color: 'red' }]}>{item.name}</Text>
+          </View>
+          {isAbsentToday && (
+            <View style={styles.absentBadge}>
+              <Text style={styles.absentBadgeText}>ABSENT {todayAbsence.period !== 'Both' && `(${todayAbsence.period.toUpperCase()})`}</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.passengerInfo}>
+          <MaterialIcons name="phone" size={16} color="#666" style={styles.iconSpaced} />
+          <Text style={styles.passengerText}>{item.phoneNumber}</Text>
+        </View>
       <View style={styles.contactRow}>
         <MaterialIcons name="email" size={16} color={Colors.light.primary} />
         <Text style={styles.contactText}>{item.email}</Text>
@@ -91,8 +109,22 @@ export default function DriverDashboard({ route, navigation }) {
           )}
         </View>
       )}
+
+      {upcomingAbsences.length > 0 && (
+        <View style={styles.upcomingAbsencesContainer}>
+          <Text style={styles.upcomingAbsencesLabel}>Upcoming Absences</Text>
+          <View style={styles.upcomingAbsencesList}>
+            {upcomingAbsences.map(a => (
+              <View key={a.date} style={styles.upcomingAbsenceChip}>
+                <Text style={styles.upcomingAbsenceText}>{new Date(a.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} {a.period !== 'Both' && `(${a.period})`}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
     </View>
   );
+  };
 
   return (
     <View style={styles.container}>
@@ -268,10 +300,23 @@ const styles = StyleSheet.create({
   badgeText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
   
   passengerCard: { backgroundColor: 'white', borderRadius: 12, padding: 15, marginBottom: 12, elevation: 1, borderLeftWidth: 4, borderLeftColor: Colors.light.primary },
-  passengerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  passengerName: { fontSize: 18, fontWeight: 'bold', color: '#333', marginLeft: 10 },
+  passengerCardAbsent: { borderLeftColor: 'red', backgroundColor: '#fffcfc' },
+  passengerHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  passengerHeader: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.light.secondary, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarAbsent: { backgroundColor: '#ffeaea' },
+  avatarText: { fontSize: 18, fontWeight: 'bold', color: Colors.light.primary },
+  passengerName: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 10 },
+  passengerDate: { fontSize: 12, color: '#888', marginTop: 2 },
+  absentBadge: { backgroundColor: '#ffeaea', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#ffcccc' },
+  absentBadgeText: { color: 'red', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 },
   passengerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, marginLeft: 34 },
   iconSpaced: { marginRight: 8 },
   passengerText: { fontSize: 14, color: '#666' },
-  emptyText: { textAlign: 'center', color: '#777', fontSize: 16, marginTop: 20, fontStyle: 'italic' }
+  emptyText: { textAlign: 'center', color: '#777', fontSize: 16, marginTop: 20, fontStyle: 'italic' },
+  upcomingAbsencesContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+  upcomingAbsencesLabel: { fontSize: 12, fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: 6 },
+  upcomingAbsencesList: { flexDirection: 'row', flexWrap: 'wrap' },
+  upcomingAbsenceChip: { backgroundColor: '#fff3e0', borderWidth: 1, borderColor: '#ffe0b2', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, marginRight: 6, marginBottom: 4 },
+  upcomingAbsenceText: { color: '#e65100', fontSize: 11, fontWeight: 'bold' }
 });

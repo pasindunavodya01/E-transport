@@ -13,6 +13,10 @@ export default function PassengerDashboard({ route, navigation }) {
     pickupLocation: user?.pickupLocation || '',
     dropoffLocation: user?.dropoffLocation || ''
   });
+  const [absences, setAbsences] = useState(user?.absences || []);
+  const [selectedDateType, setSelectedDateType] = useState('Today');
+  const [specificDate, setSpecificDate] = useState('');
+  const [newAbsencePeriod, setNewAbsencePeriod] = useState('Both');
 
   useEffect(() => {
     fetchDriverDetails();
@@ -43,6 +47,74 @@ export default function PassengerDashboard({ route, navigation }) {
       console.error('Failed to update locations:', error);
       Alert.alert('Error', 'Failed to update locations');
     }
+  };
+
+  const getDateStr = (offsetDays = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return (new Date(d - tzOffset)).toISOString().split('T')[0];
+  };
+
+  const addAbsence = async (dateStr, periodStr) => {
+    const existingIndex = absences.findIndex(a => a.date === dateStr);
+    let newAbsences = [...absences];
+    if (existingIndex >= 0) {
+      newAbsences[existingIndex] = { date: dateStr, period: periodStr };
+    } else {
+      newAbsences.push({ date: dateStr, period: periodStr });
+    }
+    
+    newAbsences.sort((a,b) => a.date.localeCompare(b.date));
+
+    try {
+      const response = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-absences`, {
+        absences: newAbsences
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCurrentUser(response.data);
+      setAbsences(response.data.absences || []);
+    } catch (error) {
+      console.error('Failed to update absences:', error);
+      Alert.alert('Error', 'Failed to update absences');
+    }
+  };
+
+  const removeAbsence = async (dateStr) => {
+    const newAbsences = absences.filter(a => a.date !== dateStr);
+    try {
+      const response = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-absences`, {
+        absences: newAbsences
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCurrentUser(response.data);
+      setAbsences(response.data.absences || []);
+    } catch (error) {
+      console.error('Failed to remove absence:', error);
+      Alert.alert('Error', 'Failed to remove absence');
+    }
+  };
+
+  const handleSubmitAbsence = () => {
+    let dateStr = '';
+    if (selectedDateType === 'Today') dateStr = getDateStr(0);
+    else if (selectedDateType === 'Tomorrow') dateStr = getDateStr(1);
+    else {
+      if (!specificDate) {
+        Alert.alert('Missing Date', 'Please enter a specific date.');
+        return;
+      }
+      const regex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!regex.test(specificDate)) {
+        Alert.alert('Invalid Date', 'Please format as YYYY-MM-DD');
+        return;
+      }
+      dateStr = specificDate;
+    }
+    addAbsence(dateStr, newAbsencePeriod);
+    setSpecificDate('');
   };
 
   const handleLogout = () => {
@@ -161,6 +233,72 @@ export default function PassengerDashboard({ route, navigation }) {
             </View>
           )}
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Manage Absences</Text>
+          <Text style={styles.subText}>Let your driver know if you won't be travelling on specific days.</Text>
+          
+          <View style={styles.formContainer}>
+            <Text style={styles.inputLabel}>1. Select Date</Text>
+            <View style={styles.toggleRow}>
+              {['Today', 'Tomorrow', 'Specific'].map(type => (
+                <TouchableOpacity 
+                  key={type}
+                  style={[styles.toggleBtn, selectedDateType === type && styles.toggleBtnActive]}
+                  onPress={() => setSelectedDateType(type)}
+                >
+                  <Text style={[styles.toggleBtnText, selectedDateType === type && styles.toggleBtnTextActive]}>{type}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {selectedDateType === 'Specific' && (
+              <TextInput 
+                style={[styles.dateInput, {marginBottom: 15}]} 
+                value={specificDate}
+                onChangeText={setSpecificDate}
+                placeholder="YYYY-MM-DD"
+              />
+            )}
+
+            <View style={styles.divider} />
+
+            <Text style={styles.inputLabel}>2. Select Period</Text>
+            <View style={styles.toggleRow}>
+              {['Morning', 'Evening', 'Both'].map(period => (
+                <TouchableOpacity 
+                  key={period}
+                  style={[styles.toggleBtn, newAbsencePeriod === period && styles.toggleBtnActiveOrange]}
+                  onPress={() => setNewAbsencePeriod(period)}
+                >
+                  <Text style={[styles.toggleBtnText, newAbsencePeriod === period && styles.toggleBtnTextActiveOrange]}>{period === 'Both' ? 'Full Day' : `${period} Route`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.submitAbsenceBtn} onPress={handleSubmitAbsence}>
+              <MaterialIcons name="event-busy" size={20} color="white" style={{ position: 'absolute', left: 20 }} />
+              <Text style={styles.submitAbsenceBtnText}>Submit Absence</Text>
+            </TouchableOpacity>
+          </View>
+
+          {absences.length > 0 && (
+            <View style={{marginTop: 15}}>
+              <Text style={styles.miniTitle}>Recorded Absences</Text>
+              {absences.map(absence => (
+                <View key={absence.date} style={styles.recordedAbsenceRow}>
+                  <View>
+                    <Text style={styles.recordedAbsenceText}>{absence.date}</Text>
+                    <Text style={styles.recordedAbsencePeriod}>{absence.period} Route{absence.period === 'Both' ? 's' : ''}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => removeAbsence(absence.date)}>
+                    <Text style={styles.removeText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -192,5 +330,24 @@ const styles = StyleSheet.create({
   cancelBtn: { padding: 10, marginRight: 10 },
   cancelBtnText: { color: '#666', fontWeight: 'bold', fontSize: 16 },
   saveBtn: { backgroundColor: Colors.light.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  saveBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 }
+  saveBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  
+  subText: { fontSize: 13, color: '#666', marginBottom: 15 },
+  formContainer: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#eee' },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', marginHorizontal: 4, borderRadius: 6 },
+  toggleBtnActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
+  toggleBtnActiveOrange: { backgroundColor: '#fff3e0', borderColor: '#ffe0b2' },
+  toggleBtnText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
+  toggleBtnTextActive: { color: 'white' },
+  toggleBtnTextActiveOrange: { color: '#e65100' },
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
+  dateInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 15, backgroundColor: '#fff' },
+  submitAbsenceBtn: { backgroundColor: Colors.light.primary, paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 5, flexDirection: 'row', justifyContent: 'center' },
+  submitAbsenceBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+
+  recordedAbsenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  recordedAbsenceText: { fontSize: 15, fontWeight: 'bold', color: '#444' },
+  recordedAbsencePeriod: { fontSize: 11, fontWeight: 'bold', color: '#e65100', textTransform: 'uppercase', marginTop: 3 },
+  removeText: { color: 'red', fontWeight: 'bold', fontSize: 13 }
 });
