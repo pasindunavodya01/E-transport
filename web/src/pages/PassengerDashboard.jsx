@@ -5,6 +5,7 @@ import { LogOut, MapPin, Hash, User, Phone, Mail } from 'lucide-react';
 
 export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
+  const [driverProfile, setDriverProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -22,6 +23,17 @@ export default function PassengerDashboard() {
           return navigate('/driver-dashboard');
         }
         setProfile(data);
+
+        // Fetch assigned driver details
+        try {
+          const driverRes = await axios.get(`${import.meta.env.VITE_API_URL}/auth/my-driver`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setDriverProfile(driverRes.data);
+        } catch (err) {
+          console.error('Error fetching driver details');
+        }
+
       } catch (error) {
         console.error('Error fetching passenger profile', error);
         navigate('/login');
@@ -80,11 +92,45 @@ export default function PassengerDashboard() {
               
               <div className="bg-brand-light p-6 rounded-xl border border-brand-light">
                 <h3 className="text-lg font-semibold text-brand-dark mb-4 border-b border-brand/20 pb-2">Trip Status</h3>
-                <div className="space-y-3 p-4 bg-white rounded-lg shadow-sm border border-gray-100">
-                  <p className="text-gray-500 text-sm mb-1">Assigned Vehicle</p>
-                  <p className="flex items-center gap-3 text-gray-900 text-lg font-bold">
-                    <Hash className="w-6 h-6 text-brand" /> {profile?.chosenVehicleNumber || 'Not assigned'}
-                  </p>
+                <div className="space-y-4 p-5 bg-white rounded-xl shadow-sm border border-gray-100">
+                  <div>
+                    <p className="text-gray-500 text-sm mb-1">Target Vehicle</p>
+                    <p className="flex items-center gap-3 text-gray-900 text-xl font-bold">
+                      <Hash className="w-6 h-6 text-brand" /> {profile?.chosenVehicleNumber || 'Not assigned'}
+                    </p>
+                  </div>
+
+                  {driverProfile && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Driver</p>
+                        <p className="font-semibold text-gray-800">{driverProfile.name}</p>
+                        <p className="text-sm text-gray-600 flex items-center gap-1 mt-1"><Phone className="w-3 h-3"/>{driverProfile.phoneNumber}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Vehicle</p>
+                        <p className="font-semibold text-gray-800 capitalize">{driverProfile.vehicleType}</p>
+                      </div>
+                      <div className="sm:col-span-2 mt-2">
+                        <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Route Info</p>
+                        {(driverProfile.routes && driverProfile.routes.length > 0) ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {driverProfile.routes.map((r, i) => (
+                              <div key={i} className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm space-y-1">
+                                <p><span className="font-medium text-gray-700">Route {i + 1}:</span> {r.route || 'Not set'}</p>
+                                <p><span className="font-medium text-gray-700">Time:</span> {r.startTime || 'Not set'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm text-gray-500 italic">No routes recorded for this driver</div>
+                        )}
+                        <div className="mt-3 bg-brand-light/50 p-3 rounded-lg border border-brand-light text-sm">
+                          <p><span className="font-medium text-brand-dark">Total Seats Configured:</span> {driverProfile.totalSeats || 'Not set'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

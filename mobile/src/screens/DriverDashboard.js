@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
@@ -7,9 +7,15 @@ import axios from 'axios';
 const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
 
 export default function DriverDashboard({ route, navigation }) {
-  const { user, token } = route.params || {};
+  const { user: initialUser, token } = route.params || {};
+  const [user, setUser] = useState(initialUser);
   const [passengers, setPassengers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isEditingRoute, setIsEditingRoute] = useState(false);
+  const [routeData, setRouteData] = useState({
+    routes: initialUser?.routes || [],
+    totalSeats: initialUser?.totalSeats ? String(initialUser.totalSeats) : ''
+  });
 
   useEffect(() => {
     fetchPassengers();
@@ -30,6 +36,22 @@ export default function DriverDashboard({ route, navigation }) {
 
   const handleLogout = () => {
     navigation.replace('Login');
+  };
+
+  const handleSaveRoute = async () => {
+    try {
+      const response = await axios.put(`${API_URL}/update-route`, {
+        routes: routeData.routes,
+        totalSeats: parseInt(routeData.totalSeats) || 0
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUser(response.data);
+      setIsEditingRoute(false);
+    } catch (error) {
+      console.error('Failed to update route:', error);
+      Alert.alert('Error', 'Failed to update route information');
+    }
   };
 
   const renderPassenger = ({ item }) => (
@@ -79,6 +101,89 @@ export default function DriverDashboard({ route, navigation }) {
               </View>
             </View>
 
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardTitleNoMargin}>Route Information</Text>
+                {!isEditingRoute && (
+                  <TouchableOpacity onPress={() => setIsEditingRoute(true)}>
+                    <Text style={styles.editText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {isEditingRoute ? (
+                <View style={styles.editSection}>
+                  {routeData.routes.map((r, index) => (
+                    <View key={index} style={styles.routeEditCard}>
+                      <TouchableOpacity 
+                        style={styles.removeRouteBtn}
+                        onPress={() => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes.splice(index, 1);
+                          setRouteData({...routeData, routes: newRoutes});
+                        }}
+                      >
+                        <MaterialIcons name="close" size={20} color="red" />
+                      </TouchableOpacity>
+                      <Text style={styles.inputLabel}>Route (e.g., Colombo - Kandy)</Text>
+                      <TextInput style={styles.input} value={r.route} onChangeText={t => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes[index].route = t;
+                          setRouteData({...routeData, routes: newRoutes});
+                      }} placeholder="Enter route" />
+                      
+                      <Text style={styles.inputLabel}>Start Time (e.g., 08:00 AM)</Text>
+                      <TextInput style={styles.input} value={r.startTime} onChangeText={t => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes[index].startTime = t;
+                          setRouteData({...routeData, routes: newRoutes});
+                      }} placeholder="Enter start time" />
+                    </View>
+                  ))}
+                  
+                  <TouchableOpacity 
+                    style={styles.addRouteBtn}
+                    onPress={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', startTime: '' }]})}
+                  >
+                    <Text style={styles.addRouteBtnText}>+ Add Route</Text>
+                  </TouchableOpacity>
+
+                  <Text style={[styles.inputLabel, {marginTop: 15}]}>Total Seats</Text>
+                  <TextInput style={styles.input} value={routeData.totalSeats} onChangeText={t => setRouteData({...routeData, totalSeats: t})} placeholder="Enter total seats" keyboardType="numeric" />
+                  
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditingRoute(false)}>
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.saveBtn} onPress={handleSaveRoute}>
+                      <Text style={styles.saveBtnText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.viewSection}>
+                  {(user?.routes && user.routes.length > 0) ? user.routes.map((r, index) => (
+                    <View key={index} style={styles.routeViewCard}>
+                      <View style={styles.infoRow}>
+                        <MaterialIcons name="map" size={20} color={Colors.light.primary} />
+                        <Text style={styles.infoText}>{r.route || 'Not set'}</Text>
+                      </View>
+                      <View style={styles.infoRow}>
+                        <MaterialIcons name="access-time" size={20} color={Colors.light.primary} />
+                        <Text style={styles.infoText}>{r.startTime || 'Not set'}</Text>
+                      </View>
+                    </View>
+                  )) : (
+                    <Text style={styles.emptyText}>No routes set</Text>
+                  )}
+                  <View style={[styles.infoRow, {marginTop: 10, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10}]}>
+                    <MaterialIcons name="event-seat" size={20} color={Colors.light.primary} />
+                    <Text style={[styles.infoText, {fontWeight: 'bold'}]}>{user?.totalSeats ? `${user.totalSeats} seats total` : 'Total seats not set'}</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
             <View style={styles.sectionHeaderContainer}>
               <Text style={styles.sectionTitle}>My Passengers</Text>
               <View style={styles.badge}>
@@ -107,8 +212,26 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingTop: 10, paddingBottom: 40 },
   card: { backgroundColor: 'white', borderRadius: 15, padding: 20, marginBottom: 20, elevation: 2 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
+  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
+  cardTitleNoMargin: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  editText: { color: Colors.light.primary, fontWeight: 'bold', fontSize: 16 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   infoText: { fontSize: 16, color: '#555', marginLeft: 10 },
+  
+  editSection: { marginTop: 5 },
+  viewSection: { marginTop: 5 },
+  routeEditCard: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#eee', position: 'relative' },
+  removeRouteBtn: { position: 'absolute', top: 10, right: 10, zIndex: 10, padding: 5 },
+  routeViewCard: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
+  addRouteBtn: { alignSelf: 'center', marginBottom: 15, paddingVertical: 5 },
+  addRouteBtnText: { color: Colors.light.primary, fontWeight: 'bold', fontSize: 16 },
+  inputLabel: { fontSize: 14, color: '#666', marginBottom: 5 },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 15, backgroundColor: 'white' },
+  actionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
+  cancelBtn: { padding: 10, marginRight: 10 },
+  cancelBtnText: { color: '#666', fontWeight: 'bold', fontSize: 16 },
+  saveBtn: { backgroundColor: Colors.light.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  saveBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   
   sectionHeaderContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, marginTop: 10 },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },

@@ -83,4 +83,57 @@ router.get('/passengers', verifyToken, async (req, res) => {
   }
 });
 
+// Update driver route information
+router.put('/update-route', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { routes, totalSeats } = req.body;
+    
+    const driver = await User.findOneAndUpdate(
+      { uid, role: 'driver' },
+      { routes, totalSeats },
+      { new: true }
+    );
+
+    if (!driver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    res.json(driver);
+  } catch (error) {
+    console.error('[/update-route] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get passenger's assigned driver details
+router.get('/my-driver', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const passenger = await User.findOne({ uid, role: 'passenger' });
+    
+    if (!passenger) {
+      return res.status(403).json({ message: 'Only passengers can fetch their assigned driver' });
+    }
+
+    if (!passenger.chosenVehicleNumber) {
+      return res.json(null);
+    }
+
+    const driver = await User.findOne({
+      role: 'driver',
+      vehicleNumber: passenger.chosenVehicleNumber
+    }).select('-__v -uid'); 
+
+    if (!driver) {
+      return res.status(404).json({ message: 'Assigned driver not found' });
+    }
+
+    res.json(driver);
+  } catch (error) {
+    console.error('[/my-driver] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

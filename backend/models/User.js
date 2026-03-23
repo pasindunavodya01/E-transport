@@ -10,6 +10,11 @@ const userSchema = new mongoose.Schema({
   // Driver specific fields
   vehicleNumber: { type: String },
   vehicleType: { type: String },
+  routes: [{
+    route: { type: String },
+    startTime: { type: String }
+  }],
+  totalSeats: { type: Number },
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },

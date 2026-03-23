@@ -1,10 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import axios from 'axios';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
 export default function PassengerDashboard({ route, navigation }) {
-  const { user } = route.params || {};
+  const { user, token } = route.params || {};
+  const [driverProfile, setDriverProfile] = useState(null);
+
+  useEffect(() => {
+    fetchDriverDetails();
+  }, []);
+
+  const fetchDriverDetails = async () => {
+    try {
+      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/auth/my-driver`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDriverProfile(response.data);
+    } catch (error) {
+      console.error('Failed to fetch driver details:', error);
+    }
+  };
 
   const handleLogout = () => {
     navigation.replace('Login');
@@ -41,6 +58,45 @@ export default function PassengerDashboard({ route, navigation }) {
             <FontAwesome5 name="hashtag" size={18} color={Colors.light.primary} />
             <Text style={styles.infoText}>Target Vehicle: <Text style={{fontWeight: 'bold'}}>{user?.chosenVehicleNumber || 'N/A'}</Text></Text>
           </View>
+          
+          {driverProfile && (
+            <View style={styles.driverSection}>
+              <Text style={styles.miniTitle}>Driver</Text>
+              <View style={styles.infoRow}>
+                <MaterialIcons name="person" size={20} color={Colors.light.primary} />
+                <Text style={styles.infoText}>{driverProfile.name}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <MaterialIcons name="phone" size={20} color={Colors.light.primary} />
+                <Text style={styles.infoText}>{driverProfile.phoneNumber}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <MaterialIcons name="directions-car" size={20} color={Colors.light.primary} />
+                <Text style={[styles.infoText, {textTransform: 'capitalize'}]}>{driverProfile.vehicleType}</Text>
+              </View>
+              
+              <Text style={[styles.miniTitle, {marginTop: 15}]}>Route Information</Text>
+              {(driverProfile.routes && driverProfile.routes.length > 0) ? driverProfile.routes.map((r, i) => (
+                <View key={i} style={styles.routeViewCard}>
+                  <Text style={styles.routeIndexText}>Route {i + 1}</Text>
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="map" size={20} color={Colors.light.primary} />
+                    <Text style={styles.infoText}>{r.route || 'Not set'}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="access-time" size={20} color={Colors.light.primary} />
+                    <Text style={styles.infoText}>{r.startTime || 'Not set'}</Text>
+                  </View>
+                </View>
+              )) : (
+                 <Text style={[styles.infoText, {fontStyle: 'italic', marginBottom: 10}]}>No routes recorded</Text>
+              )}
+              <View style={[styles.infoRow, {borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10, marginTop: 5}]}>
+                <MaterialIcons name="event-seat" size={20} color={Colors.light.primary} />
+                <Text style={styles.infoText}>{driverProfile.totalSeats || 'Not set'} seats configured</Text>
+              </View>
+            </View>
+          )}
         </View>
       </View>
     </View>
@@ -57,5 +113,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: 'white', borderRadius: 15, padding: 20, marginBottom: 15, elevation: 2 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  infoText: { fontSize: 16, color: '#555', marginLeft: 10 }
+  infoText: { fontSize: 16, color: '#555', marginLeft: 10 },
+  driverSection: { marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#eee' },
+  miniTitle: { fontSize: 14, fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 1 },
+  routeViewCard: { backgroundColor: '#f9f9f9', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
+  routeIndexText: { fontSize: 13, fontWeight: 'bold', color: '#888', marginBottom: 5 }
 });

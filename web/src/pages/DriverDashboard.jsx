@@ -8,6 +8,8 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true);
   const [passengers, setPassengers] = useState([]);
   const [loadingPassengers, setLoadingPassengers] = useState(true);
+  const [isEditingRoute, setIsEditingRoute] = useState(false);
+  const [routeData, setRouteData] = useState({ routes: [], totalSeats: '' });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -24,6 +26,10 @@ export default function DriverDashboard() {
           return navigate('/passenger-dashboard');
         }
         setProfile(data);
+        setRouteData({
+          routes: data.routes || [],
+          totalSeats: data.totalSeats || ''
+        });
       } catch (error) {
         console.error('Error fetching driver profile', error);
         navigate('/login');
@@ -58,6 +64,23 @@ export default function DriverDashboard() {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userRole');
     navigate('/login');
+  };
+
+  const handleSaveRoute = async () => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-route`, {
+        routes: routeData.routes,
+        totalSeats: parseInt(routeData.totalSeats) || 0
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProfile(data);
+      setIsEditingRoute(false);
+    } catch (error) {
+      console.error('Error updating route', error);
+      alert('Failed to update route information');
+    }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-light text-brand text-xl">Loading...</div>;
@@ -107,6 +130,93 @@ export default function DriverDashboard() {
                   <p className="flex items-center gap-3 text-gray-800"><Car className="w-5 h-5 text-brand" /> <span className="font-medium">Type:</span> <span className="capitalize">{profile?.vehicleType}</span></p>
                 </div>
               </div>
+            </div>
+
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900">Route Information</h3>
+                {!isEditingRoute && (
+                  <button onClick={() => setIsEditingRoute(true)} className="text-brand text-sm font-semibold hover:underline">
+                    Edit Route
+                  </button>
+                )}
+              </div>
+              
+              {isEditingRoute ? (
+                <div className="space-y-4">
+                  {routeData.routes.map((r, index) => (
+                    <div key={index} className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-100 relative">
+                      <button 
+                        onClick={() => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes.splice(index, 1);
+                          setRouteData({...routeData, routes: newRoutes});
+                        }}
+                        className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-red-200"
+                      >
+                        X
+                      </button>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Route (e.g., Colombo - Kandy)</label>
+                        <input type="text" value={r.route} onChange={e => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes[index].route = e.target.value;
+                          setRouteData({...routeData, routes: newRoutes});
+                        }} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Start Time (e.g., 08:00 AM)</label>
+                        <input type="text" value={r.startTime} onChange={e => {
+                          const newRoutes = [...routeData.routes];
+                          newRoutes[index].startTime = e.target.value;
+                          setRouteData({...routeData, routes: newRoutes});
+                        }} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-center">
+                    <button 
+                      onClick={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', startTime: '' }]})}
+                      className="text-brand text-sm font-semibold hover:underline"
+                    >
+                      + Add Another Route
+                    </button>
+                  </div>
+                  <div className="border-t pt-4 mt-4">
+                    <div className="w-full md:w-1/3">
+                      <label className="block text-sm text-gray-600 mb-1">Total Seats</label>
+                      <input type="number" value={routeData.totalSeats} onChange={e => setRouteData({...routeData, totalSeats: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end mt-4">
+                    <button onClick={() => setIsEditingRoute(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancel</button>
+                    <button onClick={handleSaveRoute} className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-dark transition-colors">Save Route</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {(profile?.routes && profile.routes.length > 0) ? profile.routes.map((r, index) => (
+                    <div key={index} className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
+                      <div className="text-center sm:text-left">
+                        <p className="text-sm text-gray-500 mb-1">Route</p>
+                        <p className="font-bold text-gray-900">{r.route || 'Not set'}</p>
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <p className="text-sm text-gray-500 mb-1">Start Time</p>
+                        <p className="font-bold text-gray-900">{r.startTime || 'Not set'}</p>
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center text-gray-500 italic">No routes set</div>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <div className="inline-block p-4 bg-brand-light rounded-lg border border-brand/20">
+                      <p className="text-sm text-brand-dark mb-1 font-semibold">Total Seats</p>
+                      <p className="font-bold text-gray-900 text-xl">{profile?.totalSeats || 'Not set'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-8 border-t border-gray-100 pt-8">
