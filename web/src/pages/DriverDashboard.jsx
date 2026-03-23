@@ -6,6 +6,8 @@ import { LogOut, Car, Hash, User, Phone, Mail } from 'lucide-react';
 export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [passengers, setPassengers] = useState([]);
+  const [loadingPassengers, setLoadingPassengers] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,6 +33,26 @@ export default function DriverDashboard() {
     };
     fetchProfile();
   }, [navigate]);
+
+  useEffect(() => {
+    const fetchPassengers = async () => {
+      try {
+        const token = localStorage.getItem('userToken');
+        if (!token) return;
+
+        const { data } = await axios.get(`${import.meta.env.VITE_API_URL}/auth/passengers`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setPassengers(data);
+      } catch (error) {
+        console.error('Error fetching passengers', error);
+      } finally {
+        setLoadingPassengers(false);
+      }
+    };
+    fetchPassengers();
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('userToken');
@@ -85,6 +107,37 @@ export default function DriverDashboard() {
                   <p className="flex items-center gap-3 text-gray-800"><Car className="w-5 h-5 text-brand" /> <span className="font-medium">Type:</span> <span className="capitalize">{profile?.vehicleType}</span></p>
                 </div>
               </div>
+            </div>
+
+            <div className="mt-8 border-t border-gray-100 pt-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <User className="w-6 h-6 text-brand" /> My Passengers
+                </h3>
+                <span className="bg-brand-light text-brand font-bold py-1 px-3 rounded-full text-sm">
+                  {passengers.length}
+                </span>
+              </div>
+              
+              {loadingPassengers ? (
+                <div className="text-gray-500 py-4 text-center">Loading passengers...</div>
+              ) : passengers.length === 0 ? (
+                <div className="text-gray-500 py-8 text-center bg-gray-50 rounded-xl border border-gray-100 italic">
+                  No passengers have selected your vehicle yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {passengers.map((passenger) => (
+                    <div key={passenger._id} className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-brand">
+                      <h4 className="font-semibold text-gray-900 text-lg mb-3">{passenger.name}</h4>
+                      <div className="space-y-2">
+                        <p className="flex items-center gap-3 text-gray-600 text-sm"><Phone className="w-4 h-4 text-gray-400" /> {passenger.phoneNumber}</p>
+                        <p className="flex items-center gap-3 text-gray-600 text-sm"><Mail className="w-4 h-4 text-gray-400" /> {passenger.email}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             
           </div>
