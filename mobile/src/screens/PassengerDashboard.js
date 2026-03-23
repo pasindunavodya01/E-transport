@@ -18,6 +18,13 @@ export default function PassengerDashboard({ route, navigation }) {
   const [specificDate, setSpecificDate] = useState('');
   const [newAbsencePeriod, setNewAbsencePeriod] = useState('Both');
 
+  const [extraBookings, setExtraBookings] = useState(user?.extraBookings || []);
+  const [bookingDateType, setBookingDateType] = useState('Today');
+  const [bookingSpecificDate, setBookingSpecificDate] = useState('');
+  const [bookingPeriod, setBookingPeriod] = useState('Morning');
+  const [bookSeats, setBookSeats] = useState('1');
+  const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
+
   useEffect(() => {
     fetchDriverDetails();
   }, []);
@@ -75,6 +82,7 @@ export default function PassengerDashboard({ route, navigation }) {
       });
       setCurrentUser(response.data);
       setAbsences(response.data.absences || []);
+      setExtraBookings(response.data.extraBookings || []);
     } catch (error) {
       console.error('Failed to update absences:', error);
       Alert.alert('Error', 'Failed to update absences');
@@ -91,6 +99,7 @@ export default function PassengerDashboard({ route, navigation }) {
       });
       setCurrentUser(response.data);
       setAbsences(response.data.absences || []);
+      setExtraBookings(response.data.extraBookings || []);
     } catch (error) {
       console.error('Failed to remove absence:', error);
       Alert.alert('Error', 'Failed to remove absence');
@@ -115,6 +124,48 @@ export default function PassengerDashboard({ route, navigation }) {
     }
     addAbsence(dateStr, newAbsencePeriod);
     setSpecificDate('');
+  };
+
+  const checkAvailability = async () => {
+    let dateStr = '';
+    if (bookingDateType === 'Today') dateStr = getDateStr(0);
+    else if (bookingDateType === 'Tomorrow') dateStr = getDateStr(1);
+    else {
+      if (!bookingSpecificDate) { Alert.alert('Missing Date', 'Please select a specific date.'); return; }
+      const regex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!regex.test(bookingSpecificDate)) { Alert.alert('Invalid Date', 'Please format as YYYY-MM-DD'); return; }
+      dateStr = bookingSpecificDate;
+    }
+    try {
+      const { data } = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/auth/ride-availability?date=${dateStr}&period=${bookingPeriod}`, { headers: { Authorization: `Bearer ${token}` } });
+      setAvailableSeatsCheck({ ...data, dateStr, period: bookingPeriod });
+    } catch (err) {
+      console.error(err); Alert.alert('Error', 'Could not check availability. Has driver configured seats?');
+    }
+  };
+
+  const confirmExtraBooking = async () => {
+    if (!availableSeatsCheck) return;
+    const seats = parseInt(bookSeats, 10);
+    if (isNaN(seats) || seats < 1 || seats > availableSeatsCheck.availableSeats) { Alert.alert('Error', 'Invalid or unavailable seat count'); return; }
+    try {
+      const newBookings = [...extraBookings, { date: availableSeatsCheck.dateStr, period: availableSeatsCheck.period, seats }];
+      const { data } = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
+      setExtraBookings(data.extraBookings || []);
+      setAvailableSeatsCheck(null);
+      setBookSeats('1');
+      Alert.alert('Success', 'Successfully booked extra seats!');
+    } catch (err) {
+      console.error(err); Alert.alert('Error', 'Could not complete booking');
+    }
+  };
+
+  const cancelExtraBooking = async (index) => {
+    try {
+      const newBookings = [...extraBookings]; newBookings.splice(index, 1);
+      const { data } = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
+      setExtraBookings(data.extraBookings || []);
+    } catch (err) { console.error(err); }
   };
 
   const handleLogout = () => {
@@ -299,6 +350,97 @@ export default function PassengerDashboard({ route, navigation }) {
             </View>
           )}
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Book Extra Seats</Text>
+          <Text style={styles.subText}>Reserve seats for friends natively calculating Driver capacities!</Text>
+          
+          <View style={styles.formContainer}>
+            <Text style={styles.inputLabel}>1. Select Booking Date</Text>
+            <View style={styles.toggleRow}>
+              {['Today', 'Tomorrow', 'Specific'].map(type => (
+                <TouchableOpacity 
+                  key={type}
+                  style={[styles.toggleBtn, bookingDateType === type && styles.toggleBtnActive]}
+                  onPress={() => {setBookingDateType(type); setAvailableSeatsCheck(null);}}
+                >
+                  <Text style={[styles.toggleBtnText, bookingDateType === type && styles.toggleBtnTextActive]}>{type}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {bookingDateType === 'Specific' && (
+              <TextInput 
+                style={[styles.dateInput, {marginBottom: 15}]} 
+                value={bookingSpecificDate}
+                onChangeText={(t) => {setBookingSpecificDate(t); setAvailableSeatsCheck(null);}}
+                placeholder="YYYY-MM-DD"
+              />
+            )}
+
+            <View style={styles.divider} />
+
+            <Text style={styles.inputLabel}>2. Select Period</Text>
+            <View style={styles.toggleRow}>
+              {['Morning', 'Evening'].map(period => (
+                <TouchableOpacity 
+                  key={period}
+                  style={[styles.toggleBtn, bookingPeriod === period && styles.toggleBtnActiveGreen]}
+                  onPress={() => {setBookingPeriod(period); setAvailableSeatsCheck(null);}}
+                >
+                  <Text style={[styles.toggleBtnText, bookingPeriod === period && styles.toggleBtnTextActiveGreen]}>{`${period} Route`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {!availableSeatsCheck ? (
+              <TouchableOpacity style={styles.checkAvailabilityBtn} onPress={checkAvailability}>
+                <Text style={styles.checkAvailabilityBtnText}>Check Free Seats</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{marginTop: 10}}>
+                {availableSeatsCheck.availableSeats > 0 ? (
+                  <View style={styles.availableBox}>
+                    <Text style={styles.availableSeatsTitle}>🔥 {availableSeatsCheck.availableSeats} Seats Available!</Text>
+                    <View style={styles.bookActionRow}>
+                      <TextInput 
+                        style={styles.seatCountInput} 
+                        keyboardType="numeric" 
+                        value={bookSeats}
+                        onChangeText={setBookSeats}
+                      />
+                      <TouchableOpacity style={styles.bookConfirmBtn} onPress={confirmExtraBooking}>
+                        <Text style={styles.bookConfirmBtnText}>Book Now!</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.unavailableBox}>
+                    <MaterialIcons name="error-outline" size={20} color="red" />
+                    <Text style={styles.unavailableText}>No seats available for this ride.</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {extraBookings.length > 0 && (
+            <View style={{marginTop: 15}}>
+              <Text style={styles.miniTitle}>My Temporary Bookings</Text>
+              {extraBookings.slice().sort((a,b)=>a.date.localeCompare(b.date)).map((booking, index) => (
+                <View key={index} style={[styles.recordedAbsenceRow, {borderBottomColor: '#d4edda'}]}>
+                  <View>
+                    <Text style={styles.recordedAbsenceText}>{typeof booking.date === 'string' ? new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''} - <Text style={{color: '#28a745'}}>{booking.seats} Seat(s)</Text></Text>
+                    <Text style={[styles.recordedAbsencePeriod, {color: '#28a745'}]}>{booking.period} Route</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => cancelExtraBooking(index)}>
+                    <Text style={styles.removeText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -338,13 +480,26 @@ const styles = StyleSheet.create({
   toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', marginHorizontal: 4, borderRadius: 6 },
   toggleBtnActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
   toggleBtnActiveOrange: { backgroundColor: '#fff3e0', borderColor: '#ffe0b2' },
+  toggleBtnActiveGreen: { backgroundColor: '#e8f5e9', borderColor: '#c8e6c9' },
   toggleBtnText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
   toggleBtnTextActive: { color: 'white' },
   toggleBtnTextActiveOrange: { color: '#e65100' },
+  toggleBtnTextActiveGreen: { color: '#2e7d32' },
   divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
   dateInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 15, backgroundColor: '#fff' },
   submitAbsenceBtn: { backgroundColor: Colors.light.primary, paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 5, flexDirection: 'row', justifyContent: 'center' },
   submitAbsenceBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+
+  checkAvailabilityBtn: { backgroundColor: '#333', paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 5 },
+  checkAvailabilityBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  availableBox: { backgroundColor: '#e8f5e9', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#c8e6c9' },
+  availableSeatsTitle: { fontWeight: 'bold', fontSize: 16, color: '#2e7d32', marginBottom: 10 },
+  bookActionRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  seatCountInput: { width: 60, height: 45, backgroundColor: 'white', borderWidth: 1, borderColor: '#c8e6c9', borderRadius: 8, textAlign: 'center', fontSize: 16, fontWeight: 'bold' },
+  bookConfirmBtn: { flex: 1, backgroundColor: '#4caf50', height: 45, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+  bookConfirmBtnText: { color: 'white', fontWeight: 'bold', fontSize: 15 },
+  unavailableBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ffebee', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#ffcdd2' },
+  unavailableText: { fontWeight: 'bold', color: '#c62828' },
 
   recordedAbsenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
   recordedAbsenceText: { fontSize: 15, fontWeight: 'bold', color: '#444' },

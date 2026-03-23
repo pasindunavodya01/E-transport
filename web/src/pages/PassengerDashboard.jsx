@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff } from 'lucide-react';
+import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle } from 'lucide-react';
 
 export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
@@ -13,6 +13,14 @@ export default function PassengerDashboard() {
   const [selectedDateType, setSelectedDateType] = useState('Today');
   const [specificDate, setSpecificDate] = useState('');
   const [newAbsencePeriod, setNewAbsencePeriod] = useState('Both');
+  
+  const [extraBookings, setExtraBookings] = useState([]);
+  const [bookingDateType, setBookingDateType] = useState('Today');
+  const [bookingSpecificDate, setBookingSpecificDate] = useState('');
+  const [bookingPeriod, setBookingPeriod] = useState('Morning');
+  const [bookSeats, setBookSeats] = useState(1);
+  const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,6 +42,7 @@ export default function PassengerDashboard() {
           dropoffLocation: data.dropoffLocation || ''
         });
         setAbsences(data.absences || []);
+        setExtraBookings(data.extraBookings || []);
 
         // Fetch assigned driver details
         try {
@@ -141,6 +150,44 @@ export default function PassengerDashboard() {
     }
     addAbsence(dateStr, newAbsencePeriod);
     setSpecificDate('');
+  };
+
+  const checkAvailability = async () => {
+    let dateStr = '';
+    if (bookingDateType === 'Today') dateStr = getDateStr(0);
+    else if (bookingDateType === 'Tomorrow') dateStr = getDateStr(1);
+    else {
+      if (!bookingSpecificDate) { alert('Please select a specific date.'); return; }
+      dateStr = bookingSpecificDate;
+    }
+    
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.get(`${import.meta.env.VITE_API_URL}/auth/ride-availability?date=${dateStr}&period=${bookingPeriod}`, { headers: { Authorization: `Bearer ${token}` } });
+      setAvailableSeatsCheck({ ...data, dateStr, period: bookingPeriod });
+    } catch (err) {
+      console.error(err); alert('Could not check availability. Has the driver set total seats?');
+    }
+  };
+
+  const confirmExtraBooking = async () => {
+    if (!availableSeatsCheck) return;
+    if (bookSeats < 1 || bookSeats > availableSeatsCheck.availableSeats) { alert('Invalid seat count'); return; }
+    try {
+      const newBookings = [...extraBookings, { date: availableSeatsCheck.dateStr, period: availableSeatsCheck.period, seats: parseInt(bookSeats, 10) }];
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
+      setExtraBookings(data.extraBookings || []); setAvailableSeatsCheck(null); setBookSeats(1); alert('Successfully booked extra seats!');
+    } catch (err) { console.error(err); alert('Could not complete booking'); }
+  };
+
+  const cancelExtraBooking = async (index) => {
+    try {
+      const newBookings = [...extraBookings]; newBookings.splice(index, 1);
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
+      setExtraBookings(data.extraBookings || []);
+    } catch (err) { console.error(err); }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-light text-brand text-xl">Loading...</div>;
@@ -365,6 +412,88 @@ export default function PassengerDashboard() {
                         </div>
                         <button onClick={() => removeAbsence(absence.date)} className="text-red-500 hover:text-red-700 font-semibold p-2 rounded-lg hover:bg-red-50 transition-colors">
                           <LogOut className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-brand" /> Book Extra Seats
+                </h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">Check if your vehicle has freed seats and temporarily reserve them for your friends!</p>
+              
+              <div className="flex flex-col gap-5 mb-8 bg-gray-50 p-6 rounded-xl border border-gray-100">
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 block mb-3">1. Select Booking Date</label>
+                  <div className="flex flex-wrap gap-3">
+                    <button onClick={() => {setBookingDateType('Today'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Today' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Today</button>
+                    <button onClick={() => {setBookingDateType('Tomorrow'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Tomorrow' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Tomorrow</button>
+                    <button onClick={() => {setBookingDateType('Specific'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Specific' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Specific Date</button>
+                  </div>
+                  {bookingDateType === 'Specific' && (
+                    <div className="mt-3 animate-fade-in">
+                      <input type="date" value={bookingSpecificDate} onChange={(e) => {setBookingSpecificDate(e.target.value); setAvailableSeatsCheck(null);}} className="w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand bg-white" min={getDateStr(0)} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-px bg-gray-200 w-full opacity-50"></div>
+
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 block mb-3">2. Select Period</label>
+                  <div className="flex flex-wrap gap-3">
+                    <button onClick={() => {setBookingPeriod('Morning'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Morning' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Morning Route</button>
+                    <button onClick={() => {setBookingPeriod('Evening'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Evening' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Evening Route</button>
+                  </div>
+                </div>
+
+                {!availableSeatsCheck ? (
+                  <button onClick={checkAvailability} className="w-full mt-2 bg-gray-800 text-white py-3 rounded-lg font-bold text-base hover:bg-gray-900 transition-colors shadow-md flex items-center justify-center gap-2">
+                    Check Driver Availability
+                  </button>
+                ) : (
+                  <div className="mt-2 animate-fade-in">
+                    {availableSeatsCheck.availableSeats > 0 ? (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-xl relative">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                          <span className="font-bold text-green-800 text-lg">{availableSeatsCheck.availableSeats} Seats Available!</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input type="number" min="1" max={availableSeatsCheck.availableSeats} value={bookSeats} onChange={e => setBookSeats(e.target.value)} className="w-20 px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 font-bold text-center" />
+                          <button onClick={confirmExtraBooking} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-bold shadow-md transition-colors">
+                            Book {bookSeats} Seat{bookSeats > 1 ? 's' : ''} Now!
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
+                        <XCircle className="w-6 h-6 text-red-500" />
+                        <span className="font-bold text-red-800">No seats available for this ride.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {extraBookings.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">My Temporary Bookings</h4>
+                  <div className="space-y-2">
+                    {extraBookings.slice().sort((a,b)=>a.date.localeCompare(b.date)).map((booking, index) => (
+                      <div key={index} className="flex justify-between items-center bg-green-50/50 border border-green-100 p-2 px-3 rounded text-sm transition-colors hover:border-red-200">
+                        <div>
+                          <span className="font-medium text-gray-800 block">{typeof booking.date === 'string' ? new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''} - <span className="text-green-700 font-bold">{booking.seats} Seat(s)</span></span>
+                          <span className="text-xs font-semibold text-green-600 uppercase tracking-wider">{booking.period} Route</span>
+                        </div>
+                        <button onClick={() => cancelExtraBooking(index)} className="text-red-500 hover:text-red-700 font-semibold p-2 rounded-lg hover:bg-red-50 transition-colors">
+                          <span className="text-xs uppercase font-bold px-1">Cancel</span> <XCircle className="w-4 h-4 inline" />
                         </button>
                       </div>
                     ))}

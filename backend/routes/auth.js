@@ -185,4 +185,75 @@ router.put('/update-absences', verifyToken, async (req, res) => {
   }
 });
 
+// Calculate Ride Availability
+router.get('/ride-availability', verifyToken, async (req, res) => {
+  try {
+    const { date, period } = req.query;
+    if (!date || !period) return res.status(400).json({ message: 'Date and period required' });
+
+    const uid = req.user.uid;
+    const passenger = await User.findOne({ uid, role: 'passenger' });
+    if (!passenger || !passenger.chosenVehicleNumber) {
+      return res.status(404).json({ message: 'Passenger or chosen vehicle not found' });
+    }
+
+    const driver = await User.findOne({ vehicleNumber: passenger.chosenVehicleNumber, role: 'driver' });
+    if (!driver || !driver.totalSeats) {
+      return res.json({ availableSeats: 0, totalSeats: 0, message: 'Driver has not set total seats' });
+    }
+
+    const totalSeats = driver.totalSeats;
+    const allPassengers = await User.find({ chosenVehicleNumber: passenger.chosenVehicleNumber, role: 'passenger' });
+    
+    let absentCount = 0;
+    let extraBookingsCount = 0;
+
+    allPassengers.forEach(p => {
+      const isAbsent = p.absences && p.absences.some(a => a.date === date && (a.period === period || a.period === 'Both'));
+      if (isAbsent) absentCount++;
+
+      if (p.extraBookings) {
+        p.extraBookings.forEach(eb => {
+          if (eb.date === date && (eb.period === period || eb.period === 'Both')) {
+            extraBookingsCount += eb.seats;
+          }
+        });
+      }
+    });
+
+    const presentPassengers = allPassengers.length - absentCount;
+    const freeSeats = totalSeats - presentPassengers - extraBookingsCount;
+
+    res.json({ availableSeats: Math.max(0, freeSeats), totalSeats });
+  } catch (error) {
+    console.error('[/ride-availability] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update Extra Bookings
+router.put('/update-extra-bookings', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { extraBookings } = req.body;
+    
+    const bookingsList = Array.isArray(extraBookings) ? extraBookings : [];
+    
+    const passenger = await User.findOneAndUpdate(
+      { uid, role: 'passenger' },
+      { extraBookings: bookingsList },
+      { new: true }
+    );
+
+    if (!passenger) {
+      return res.status(404).json({ message: 'Passenger not found' });
+    }
+
+    res.json(passenger);
+  } catch (error) {
+    console.error('[/update-extra-bookings] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

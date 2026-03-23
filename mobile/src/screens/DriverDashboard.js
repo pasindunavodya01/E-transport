@@ -240,6 +240,53 @@ export default function DriverDashboard({ route, navigation }) {
               )}
             </View>
 
+            {user?.totalSeats && !loading && (
+              <View style={styles.card}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardTitleNoMargin}>Today's Ride Summary</Text>
+                  <View style={styles.dateBadge}>
+                    <Text style={styles.dateBadgeText}>{getTodayStr()}</Text>
+                  </View>
+                </View>
+                
+                {['Morning', 'Evening'].map(period => {
+                  const assigned = passengers.length;
+                  const absent = passengers.filter(p => p.absences?.some(a => a.date === getTodayStr() && (a.period === period || a.period === 'Both'))).length;
+                  const extra = passengers.reduce((sum, p) => sum + (p.extraBookings?.filter(eb => eb.date === getTodayStr() && (eb.period === period || eb.period === 'Both')).reduce((s, eb) => s + eb.seats, 0) || 0), 0);
+                  const present = assigned - absent;
+                  const free = user.totalSeats - present - extra;
+                  const totalOccupied = present + extra;
+                  const overbooked = totalOccupied > user.totalSeats;
+
+                  return (
+                    <View key={period} style={[styles.summaryBox, overbooked ? styles.summaryBoxRed : styles.summaryBoxGray]}>
+                      <View style={styles.summaryHeader}>
+                        <Text style={styles.summaryPeriodTitle}>{period === 'Morning' ? '🌅' : '🌆'} {period} Route</Text>
+                        <View style={[styles.statusBadge, overbooked ? styles.statusBadgeRed : styles.statusBadgeGreen]}>
+                          <Text style={[styles.statusBadgeText, overbooked ? styles.statusBadgeTextRed : styles.statusBadgeTextGreen]}>
+                            {overbooked ? `OVERBOOKED (${Math.abs(free)})` : `${free} SEATS FREE`}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      <View style={styles.summaryStatRow}>
+                        <Text style={styles.summaryStatLabel}>Active Passengers</Text>
+                        <Text style={styles.summaryStatValue}>{present} <Text style={styles.summaryStatDetail}>({assigned} tot, {absent} abs)</Text></Text>
+                      </View>
+                      <View style={styles.summaryStatRow}>
+                        <Text style={styles.summaryStatLabel}>Extra Friend Bookings</Text>
+                        <Text style={[styles.summaryStatValue, {color: Colors.light.primary}]}>{extra}</Text>
+                      </View>
+                      <View style={[styles.summaryStatRow, styles.summaryStatRowTop]}>
+                        <Text style={[styles.summaryStatLabel, {fontWeight: 'bold', color: '#333'}]}>Total Occupancy</Text>
+                        <Text style={[styles.summaryStatValue, {fontWeight: 'bold', color: overbooked ? '#d32f2f' : '#333'}]}>{totalOccupied} / {user.totalSeats}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             <View style={styles.sectionHeaderContainer}>
               <Text style={styles.sectionTitle}>My Passengers</Text>
               <View style={styles.badge}>
@@ -272,6 +319,25 @@ const styles = StyleSheet.create({
   cardTitleNoMargin: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   editText: { color: Colors.light.primary, fontWeight: 'bold', fontSize: 16 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  
+  dateBadge: { backgroundColor: '#f0f0f0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 15 },
+  dateBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#555' },
+  summaryBox: { padding: 15, borderRadius: 10, borderWidth: 1, marginBottom: 15 },
+  summaryBoxGray: { backgroundColor: '#f8f9fa', borderColor: '#eee' },
+  summaryBoxRed: { backgroundColor: '#ffebee', borderColor: '#ffcdd2' },
+  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  summaryPeriodTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusBadgeGreen: { backgroundColor: '#e8f5e9' },
+  statusBadgeRed: { backgroundColor: '#ffcdd2' },
+  statusBadgeText: { fontSize: 10, fontWeight: 'bold' },
+  statusBadgeTextGreen: { color: '#2e7d32' },
+  statusBadgeTextRed: { color: '#c62828' },
+  summaryStatRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  summaryStatRowTop: { borderTopWidth: 1, borderTopColor: '#ddd', paddingTop: 6, marginTop: 4 },
+  summaryStatLabel: { fontSize: 13, color: '#666' },
+  summaryStatValue: { fontSize: 14, fontWeight: 'bold', color: '#444' },
+  summaryStatDetail: { fontSize: 12, fontWeight: 'normal', color: '#999' },
   infoText: { fontSize: 16, color: '#555', marginLeft: 10 },
   
   editSection: { marginTop: 5 },

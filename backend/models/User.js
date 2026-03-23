@@ -24,6 +24,11 @@ const userSchema = new mongoose.Schema({
     date: { type: String },
     period: { type: String, enum: ['Morning', 'Evening', 'Both'], default: 'Both' }
   }],
+  extraBookings: [{
+    date: { type: String, required: true },
+    period: { type: String, enum: ['Morning', 'Evening', 'Both'], required: true },
+    seats: { type: Number, required: true, min: 1 }
+  }],
   
   createdAt: { type: Date, default: Date.now }
 });

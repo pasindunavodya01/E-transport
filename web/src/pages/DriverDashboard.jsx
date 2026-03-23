@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, Car, Hash, User, Phone, Mail, MapPin } from 'lucide-react';
+import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle } from 'lucide-react';
 
 export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
@@ -225,6 +225,63 @@ export default function DriverDashboard() {
               )}
             </div>
 
+            {profile?.totalSeats && !loadingPassengers && (
+              <div className="mt-8 border-t border-gray-100 pt-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <Calendar className="w-6 h-6 text-brand" /> Today's Ride Summary
+                  </h3>
+                  <span className="text-sm font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">{getTodayStr()}</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {['Morning', 'Evening'].map(period => {
+                    const assigned = passengers.length;
+                    const absent = passengers.filter(p => p.absences?.some(a => a.date === getTodayStr() && (a.period === period || a.period === 'Both'))).length;
+                    const extra = passengers.reduce((sum, p) => sum + (p.extraBookings?.filter(eb => eb.date === getTodayStr() && (eb.period === period || eb.period === 'Both')).reduce((s, eb) => s + eb.seats, 0) || 0), 0);
+                    const present = assigned - absent;
+                    const free = profile.totalSeats - present - extra;
+                    const totalOccupied = present + extra;
+                    const overbooked = totalOccupied > profile.totalSeats;
+
+                    return (
+                      <div key={period} className={`p-6 rounded-xl border ${overbooked ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex justify-between items-center mb-4">
+                          <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            {period === 'Morning' ? '🌅' : '🌆'} {period} Route
+                          </h4>
+                          {overbooked ? (
+                            <span className="flex items-center gap-1 text-red-600 text-xs font-bold uppercase px-2 py-1 bg-red-100 rounded">
+                              <AlertCircle className="w-4 h-4" /> Overbooked ({Math.abs(free)})
+                            </span>
+                          ) : (
+                            <span className="text-green-600 text-xs font-bold uppercase px-2 py-1 bg-green-100 rounded">
+                              {free} Seats Free
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Active Passengers</span>
+                            <span className="font-semibold">{present} <span className="text-gray-400 font-normal">({assigned} tot, {absent} abs)</span></span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Extra Friend Bookings</span>
+                            <span className="font-semibold text-brand">{extra}</span>
+                          </div>
+                          <div className="border-t pt-2 flex justify-between font-bold">
+                            <span className="text-gray-800">Total Occupancy</span>
+                            <span className={overbooked ? 'text-red-600' : 'text-gray-900'}>{totalOccupied} / {profile.totalSeats}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="mt-8 border-t border-gray-100 pt-8">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -300,7 +357,9 @@ export default function DriverDashboard() {
                     )}
                   </div>
                 </div>
-              )})}  </div>
+              );
+              })}
+              </div>
               )}
             </div>
             
