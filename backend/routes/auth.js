@@ -136,4 +136,27 @@ router.get('/my-driver', verifyToken, async (req, res) => {
   }
 });
 
+// Update passenger pickup and dropoff locations
+router.put('/update-locations', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { pickupLocation, dropoffLocation } = req.body;
+    
+    const passenger = await User.findOneAndUpdate(
+      { uid, role: 'passenger' },
+      { pickupLocation, dropoffLocation },
+      { new: true }
+    );
+
+    if (!passenger) {
+      return res.status(404).json({ message: 'Passenger not found' });
+    }
+
+    res.json(passenger);
+  } catch (error) {
+    console.error('[/update-locations] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

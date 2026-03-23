@@ -7,6 +7,8 @@ export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
   const [driverProfile, setDriverProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isEditingLocations, setIsEditingLocations] = useState(false);
+  const [locationData, setLocationData] = useState({ pickupLocation: '', dropoffLocation: '' });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -23,6 +25,10 @@ export default function PassengerDashboard() {
           return navigate('/driver-dashboard');
         }
         setProfile(data);
+        setLocationData({
+          pickupLocation: data.pickupLocation || '',
+          dropoffLocation: data.dropoffLocation || ''
+        });
 
         // Fetch assigned driver details
         try {
@@ -48,6 +54,23 @@ export default function PassengerDashboard() {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userRole');
     navigate('/login');
+  };
+
+  const handleSaveLocations = async () => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-locations`, {
+        pickupLocation: locationData.pickupLocation,
+        dropoffLocation: locationData.dropoffLocation
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProfile(data);
+      setIsEditingLocations(false);
+    } catch (error) {
+      console.error('Error updating locations', error);
+      alert('Failed to update locations');
+    }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-light text-brand text-xl">Loading...</div>;
@@ -134,6 +157,50 @@ export default function PassengerDashboard() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900">My Trip Locations</h3>
+                {!isEditingLocations && (
+                  <button onClick={() => setIsEditingLocations(true)} className="text-brand text-sm font-semibold hover:underline">
+                    Edit Locations
+                  </button>
+                )}
+              </div>
+              
+              {isEditingLocations ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Pickup Location</label>
+                    <input type="text" value={locationData.pickupLocation} onChange={e => setLocationData({...locationData, pickupLocation: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Dematagoda Station"/>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Drop-off Location</label>
+                    <input type="text" value={locationData.dropoffLocation} onChange={e => setLocationData({...locationData, dropoffLocation: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Kandy Town"/>
+                  </div>
+                  <div className="md:col-span-2 flex gap-2 justify-end mt-2">
+                    <button onClick={() => setIsEditingLocations(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancel</button>
+                    <button onClick={handleSaveLocations} className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-dark transition-colors">Save</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center sm:text-left">
+                    <p className="text-sm text-gray-500 mb-1">Pickup</p>
+                    <p className="font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-2">
+                      <MapPin className="w-4 h-4 text-brand" /> {profile?.pickupLocation || 'Not set'}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center sm:text-left">
+                    <p className="text-sm text-gray-500 mb-1">Drop-off</p>
+                    <p className="font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-2">
+                      <MapPin className="w-4 h-4 text-brand" /> {profile?.dropoffLocation || 'Not set'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
           </div>
         </div>
       </main>

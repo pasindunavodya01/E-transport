@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, Car, Hash, User, Phone, Mail } from 'lucide-react';
+import { LogOut, Car, Hash, User, Phone, Mail, MapPin } from 'lucide-react';
 
 export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
@@ -242,11 +242,35 @@ export default function DriverDashboard() {
                       <h4 className="font-semibold text-gray-900 text-lg mb-3">{passenger.name}</h4>
                       <div className="space-y-2">
                         <p className="flex items-center gap-3 text-gray-600 text-sm"><Phone className="w-4 h-4 text-gray-400" /> {passenger.phoneNumber}</p>
-                        <p className="flex items-center gap-3 text-gray-600 text-sm"><Mail className="w-4 h-4 text-gray-400" /> {passenger.email}</p>
-                      </div>
+                        <div className="flex items-center gap-2 text-gray-600">
+                      <Mail className="w-4 h-4 text-brand" />
+                      <span className="text-sm">{passenger.email}</span>
                     </div>
-                  ))}
+                    {(passenger.pickupLocation || passenger.dropoffLocation) && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                        {passenger.pickupLocation && (
+                          <div className="flex items-start gap-2 text-gray-600">
+                            <MapPin className="w-4 h-4 text-green-500 mt-0.5" />
+                            <div className="text-sm">
+                              <span className="font-medium text-gray-700 block">Pickup</span>
+                              {passenger.pickupLocation}
+                            </div>
+                          </div>
+                        )}
+                        {passenger.dropoffLocation && (
+                          <div className="flex items-start gap-2 text-gray-600">
+                            <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
+                            <div className="text-sm">
+                              <span className="font-medium text-gray-700 block">Drop-off</span>
+                              {passenger.dropoffLocation}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+              ))}  </div>
               )}
             </div>
             

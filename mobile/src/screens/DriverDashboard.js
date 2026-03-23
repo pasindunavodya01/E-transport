@@ -64,10 +64,33 @@ export default function DriverDashboard({ route, navigation }) {
         <MaterialIcons name="phone" size={16} color="#666" style={styles.iconSpaced} />
         <Text style={styles.passengerText}>{item.phoneNumber}</Text>
       </View>
-      <View style={styles.passengerInfo}>
-        <MaterialIcons name="email" size={16} color="#666" style={styles.iconSpaced} />
-        <Text style={styles.passengerText}>{item.email}</Text>
+      <View style={styles.contactRow}>
+        <MaterialIcons name="email" size={16} color={Colors.light.primary} />
+        <Text style={styles.contactText}>{item.email}</Text>
       </View>
+
+      {(item.pickupLocation || item.dropoffLocation) && (
+        <View style={styles.locationContainer}>
+          {item.pickupLocation && (
+            <View style={styles.locationRow}>
+              <MaterialIcons name="my-location" size={16} color="green" />
+              <View style={styles.locationTextContainer}>
+                <Text style={styles.locationLabel}>Pickup</Text>
+                <Text style={styles.locationText}>{item.pickupLocation}</Text>
+              </View>
+            </View>
+          )}
+          {item.dropoffLocation && (
+            <View style={styles.locationRow}>
+              <MaterialIcons name="location-pin" size={16} color="red" />
+              <View style={styles.locationTextContainer}>
+                <Text style={styles.locationLabel}>Drop-off</Text>
+                <Text style={styles.locationText}>{item.dropoffLocation}</Text>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 
@@ -232,6 +255,11 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: '#666', fontWeight: 'bold', fontSize: 16 },
   saveBtn: { backgroundColor: Colors.light.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   saveBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  locationContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+  locationRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
+  locationTextContainer: { marginLeft: 8 },
+  locationLabel: { fontSize: 12, fontWeight: 'bold', color: '#666' },
+  locationText: { fontSize: 13, color: '#444' },
   
   sectionHeaderContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, marginTop: 10 },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },

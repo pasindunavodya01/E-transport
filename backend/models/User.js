@@ -18,6 +18,8 @@ const userSchema = new mongoose.Schema({
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },
+  pickupLocation: { type: String },
+  dropoffLocation: { type: String },
   
   createdAt: { type: Date, default: Date.now }
 });
