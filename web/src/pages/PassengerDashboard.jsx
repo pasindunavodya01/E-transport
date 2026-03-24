@@ -33,6 +33,14 @@ export default function PassengerDashboard() {
   const [bookSeats, setBookSeats] = useState(1);
   const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
 
+  // Payment state
+  const [payments, setPayments] = useState([]);
+  const [paymentMonth, setPaymentMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentFile, setPaymentFile] = useState(null);
+  const [paymentFilePreview, setPaymentFilePreview] = useState(null);
+  const [paymentUploading, setPaymentUploading] = useState(false);
+
   const [driverLocation, setDriverLocation] = useState(null);
   const [isDriverActive, setIsDriverActive] = useState(false);
 
@@ -59,7 +67,7 @@ export default function PassengerDashboard() {
         setAbsences(data.absences || []);
         setExtraBookings(data.extraBookings || []);
 
-        // Fetch assigned driver details
+        // Fetch driver details
         try {
           const driverRes = await axios.get(`${import.meta.env.VITE_API_URL}/auth/my-driver`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -67,6 +75,16 @@ export default function PassengerDashboard() {
           setDriverProfile(driverRes.data);
         } catch (err) {
           console.error('Error fetching driver details');
+        }
+
+        // Fetch payment history
+        try {
+          const payRes = await axios.get(`${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/my-payments`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setPayments(payRes.data || []);
+        } catch (err) {
+          console.error('Error fetching payments');
         }
 
       } catch (error) {
@@ -242,6 +260,36 @@ export default function PassengerDashboard() {
       const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
       setExtraBookings(data.extraBookings || []);
     } catch (err) { console.error(err); }
+  };
+
+  const uploadPayment = async () => {
+    if (!paymentFile || !paymentAmount || !paymentMonth) {
+      alert('Please select a month, enter the amount, and pick a receipt image.');
+      return;
+    }
+    setPaymentUploading(true);
+    try {
+      const token = localStorage.getItem('userToken');
+      const formData = new FormData();
+      formData.append('month', paymentMonth);
+      formData.append('amount', paymentAmount);
+      formData.append('receipt', paymentFile);
+      const { data } = await axios.post(
+        `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/upload`,
+        formData,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+      );
+      setPayments(data.payments ? [...data.payments].sort((a,b)=>b.month.localeCompare(a.month)) : []);
+      setPaymentFile(null);
+      setPaymentFilePreview(null);
+      setPaymentAmount('');
+      alert('Payment submitted successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload payment. Check your Cloudinary credentials.');
+    } finally {
+      setPaymentUploading(false);
+    }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-light text-brand text-xl">Loading...</div>;
@@ -642,6 +690,101 @@ export default function PassengerDashboard() {
             </div>
           </div>
         </div>
+
+        {/* ── Monthly Payments ── */}
+        <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 md:p-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+              💳 Monthly Payments
+            </h3>
+            <p className="text-sm text-gray-500 mb-5">Upload your monthly payment receipt. The driver will verify and approve it.</p>
+
+            {/* Upload form */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Month</label>
+                  <input
+                    type="month"
+                    value={paymentMonth}
+                    onChange={e => setPaymentMonth(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand bg-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (LKR)</label>
+                  <input
+                    type="number"
+                    value={paymentAmount}
+                    onChange={e => setPaymentAmount(e.target.value)}
+                    placeholder="e.g. 3500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand bg-white text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Receipt Photo / Screenshot</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    const f = e.target.files[0];
+                    setPaymentFile(f || null);
+                    setPaymentFilePreview(f ? URL.createObjectURL(f) : null);
+                  }}
+                  className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand file:text-white hover:file:bg-brand-dark cursor-pointer"
+                />
+                {paymentFilePreview && (
+                  <img src={paymentFilePreview} alt="Preview" className="mt-3 h-40 object-cover rounded-lg border border-gray-200 shadow-sm" />
+                )}
+              </div>
+
+              <button
+                onClick={uploadPayment}
+                disabled={paymentUploading}
+                className="w-full py-3 bg-brand text-white font-bold rounded-lg hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {paymentUploading ? 'Uploading...' : 'Submit Payment Receipt'}
+              </button>
+            </div>
+
+            {/* Payment history */}
+            {payments.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-gray-700 border-b pb-2">Payment History</h4>
+                {payments.map((p, i) => (
+                  <div key={i} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    {p.imageUrl && (
+                      <a href={p.imageUrl} target="_blank" rel="noreferrer">
+                        <img src={p.imageUrl} alt="receipt" className="w-16 h-16 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity" />
+                      </a>
+                    )}
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-800">{p.month} &nbsp;•&nbsp; LKR {p.amount?.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Submitted: {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}
+                        {p.reviewedAt && ` • Reviewed: ${new Date(p.reviewedAt).toLocaleDateString()}`}
+                      </p>
+                      {p.note && <p className="text-xs text-gray-500 italic mt-1">Note: {p.note}</p>}
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                      p.status === 'approved' ? 'bg-green-100 text-green-700' :
+                      p.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {payments.length === 0 && (
+              <p className="text-sm text-gray-400 italic text-center py-4">No payment records yet.</p>
+            )}
+          </div>
+        </div>
+
       </main>
     </div>
   );

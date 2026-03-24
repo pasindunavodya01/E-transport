@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
@@ -28,9 +28,12 @@ export default function DriverDashboard({ route, navigation }) {
   const [routePolylines, setRoutePolylines] = useState(
     (initialUser?.routes || []).filter(r => r.polyline).map(r => ({ points: JSON.parse(r.polyline) }))
   );
+  const [allPayments, setAllPayments] = useState([]);
+  const [reviewNotes, setReviewNotes] = useState({});
 
   useEffect(() => {
     fetchPassengers();
+    fetchAllPayments();
   }, []);
 
   useEffect(() => {
@@ -120,6 +123,31 @@ export default function DriverDashboard({ route, navigation }) {
     }
   };
 
+  const fetchAllPayments = async () => {
+    try {
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/all-payments`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setAllPayments(response.data || []);
+    } catch (err) {
+      console.error('Failed to fetch payments:', err);
+    }
+  };
+
+  const reviewPayment = async (passengerId, paymentId, status) => {
+    try {
+      await axios.put(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/review/${passengerId}/${paymentId}`,
+        { status, note: reviewNotes[paymentId] || '' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      await fetchAllPayments();
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update payment status');
+    }
+  };
+
   const handleLogout = () => {
     navigation.replace('Login');
   };
@@ -200,7 +228,7 @@ export default function DriverDashboard({ route, navigation }) {
               <MaterialIcons name="my-location" size={16} color="green" />
               <View style={styles.locationTextContainer}>
                 <Text style={styles.locationLabel}>Pickup</Text>
-                <Text style={styles.locationText}>{item.pickupLocation}</Text>
+                <Text style={styles.locationText}>{item.pickupLocation?.address || item.pickupLocation}</Text>
               </View>
             </View>
           )}
@@ -209,7 +237,7 @@ export default function DriverDashboard({ route, navigation }) {
               <MaterialIcons name="location-pin" size={16} color="red" />
               <View style={styles.locationTextContainer}>
                 <Text style={styles.locationLabel}>Drop-off</Text>
-                <Text style={styles.locationText}>{item.dropoffLocation}</Text>
+                <Text style={styles.locationText}>{item.dropoffLocation?.address || item.dropoffLocation}</Text>
               </View>
             </View>
           )}
@@ -487,6 +515,74 @@ export default function DriverDashboard({ route, navigation }) {
           </>
         }
         renderItem={renderPassenger}
+        ListFooterComponent={
+          <>
+            {/* ── Payment Approvals ── */}
+    <View style={[styles.card, {marginHorizontal: 20, marginBottom: 40}]}>
+      <Text style={styles.cardTitle}>💳 Payment Approvals</Text>
+      <Text style={{fontSize: 12, color: '#888', marginBottom: 12}}>Review monthly payment receipts from your passengers.</Text>
+
+      {allPayments.length === 0 && (
+        <Text style={{color: '#bbb', fontStyle: 'italic', textAlign: 'center', paddingVertical: 12}}>No payment submissions yet.</Text>
+      )}
+
+      {allPayments.map(passenger => (
+        passenger.payments && passenger.payments.length > 0 && (
+          <View key={passenger.passengerId} style={{marginBottom: 16}}>
+            <Text style={{fontWeight: 'bold', fontSize: 14, color: '#333', marginBottom: 8}}>
+              {passenger.name} <Text style={{color: '#888', fontWeight: 'normal', fontSize: 12}}>({passenger.email})</Text>
+            </Text>
+            {passenger.payments.map((p) => (
+              <View key={p._id} style={{borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 12, marginBottom: 10, backgroundColor: '#fafafa'}}>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  {p.imageUrl && (
+                    <Image source={{ uri: p.imageUrl }} style={{ width: 64, height: 64, borderRadius: 8 }} />
+                  )}
+                  <View style={{flex: 1}}>
+                    <Text style={{fontWeight: 'bold', fontSize: 13}}>{p.month}  •  LKR {p.amount?.toLocaleString()}</Text>
+                    <Text style={{fontSize: 11, color: '#888'}}>{p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : ''}</Text>
+                    <View style={{paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, alignSelf: 'flex-start', marginTop: 4,
+                      backgroundColor: p.status === 'approved' ? '#e8f5e9' : p.status === 'rejected' ? '#ffebee' : '#fff8e1'}}>
+                      <Text style={{fontSize: 9, fontWeight: 'bold',
+                        color: p.status === 'approved' ? '#2e7d32' : p.status === 'rejected' ? '#c62828' : '#e65100'}}>
+                        {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                {p.status === 'pending' && (
+                  <View style={{marginTop: 10}}>
+                    <TextInput
+                      style={{borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 8, fontSize: 12, marginBottom: 8, backgroundColor: 'white'}}
+                      placeholder="Optional note for passenger..."
+                      value={reviewNotes[p._id] || ''}
+                      onChangeText={t => setReviewNotes(n => ({...n, [p._id]: t}))}
+                    />
+                    <View style={{flexDirection: 'row', gap: 10}}>
+                      <TouchableOpacity
+                        style={{flex: 1, backgroundColor: '#4caf50', padding: 10, borderRadius: 8, alignItems: 'center'}}
+                        onPress={() => reviewPayment(passenger.passengerId, p._id, 'approved')}
+                      >
+                        <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>✅ Approve</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{flex: 1, backgroundColor: '#ffebee', padding: 10, borderRadius: 8, alignItems: 'center'}}
+                        onPress={() => reviewPayment(passenger.passengerId, p._id, 'rejected')}
+                      >
+                        <Text style={{color: '#c62828', fontWeight: 'bold', fontSize: 13}}>❌ Reject</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                {p.note ? <Text style={{fontSize: 11, color: '#666', fontStyle: 'italic', marginTop: 6}}>Note: {p.note}</Text> : null}
+              </View>
+            ))}
+          </View>
+        )
+      ))}
+    </View>
+          </>
+        }
       />
     </View>
   );

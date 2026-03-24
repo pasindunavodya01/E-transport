@@ -36,6 +36,16 @@ const userSchema = new mongoose.Schema({
     period: { type: String, enum: ['Morning', 'Evening', 'Both'], required: true },
     seats: { type: Number, required: true, min: 1 }
   }],
+  payments: [{
+    month: { type: String },           // e.g. "2026-03"
+    amount: { type: Number },
+    imageUrl: { type: String },        // Cloudinary secure URL
+    publicId: { type: String },        // Cloudinary public_id for deletion
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    submittedAt: { type: Date, default: Date.now },
+    reviewedAt: { type: Date },
+    note: { type: String }             // Driver's optional feedback
+  }],
   
   createdAt: { type: Date, default: Date.now }
 });

@@ -26,6 +26,8 @@ export default function DriverDashboard() {
   const [currentLocation, setCurrentLocation] = useState(null);
   const currentLocationRef = React.useRef(null);
   const [routePolylines, setRoutePolylines] = useState([]); // array of {points:[{lat,lng}]}
+  const [allPayments, setAllPayments] = useState([]); // [{passengerId, name, email, payments:[...]}]
+  const [reviewNotes, setReviewNotes] = useState({}); // { paymentId: noteText }
   
   const navigate = useNavigate();
 
@@ -83,6 +85,16 @@ export default function DriverDashboard() {
         });
         
         setPassengers(data);
+
+        // Fetch payment records for all passengers
+        try {
+          const token2 = localStorage.getItem('userToken');
+          const paymentsRes = await axios.get(
+            `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/all-payments`,
+            { headers: { Authorization: `Bearer ${token2}` } }
+          );
+          setAllPayments(paymentsRes.data || []);
+        } catch {}
       } catch (error) {
         console.error('Error fetching passengers', error);
       } finally {
@@ -198,6 +210,26 @@ export default function DriverDashboard() {
     } catch (error) {
       console.error('Toggle trip error', error);
       alert('Could not toggle trip state.');
+    }
+  };
+
+  const reviewPayment = async (passengerId, paymentId, status) => {
+    try {
+      const token = localStorage.getItem('userToken');
+      await axios.put(
+        `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/review/${passengerId}/${paymentId}`,
+        { status, note: reviewNotes[paymentId] || '' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Refresh the payments list
+      const paymentsRes = await axios.get(
+        `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/all-payments`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setAllPayments(paymentsRes.data || []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update payment status.');
     }
   };
 
@@ -501,7 +533,7 @@ export default function DriverDashboard() {
                             <MapPin className="w-4 h-4 text-green-500 mt-0.5" />
                             <div className="text-sm">
                               <span className="font-medium text-gray-700 block">Pickup</span>
-                              {passenger.pickupLocation}
+                              {passenger.pickupLocation?.address || passenger.pickupLocation}
                             </div>
                           </div>
                         )}
@@ -510,7 +542,7 @@ export default function DriverDashboard() {
                             <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
                             <div className="text-sm">
                               <span className="font-medium text-gray-700 block">Drop-off</span>
-                              {passenger.dropoffLocation}
+                              {passenger.dropoffLocation?.address || passenger.dropoffLocation}
                             </div>
                           </div>
                         )}
@@ -539,6 +571,79 @@ export default function DriverDashboard() {
             
           </div>
         </div>
+
+        {/* ── Payment Approvals ── */}
+        <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 md:p-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">💳 Payment Approvals</h3>
+            <p className="text-sm text-gray-500 mb-5">Review and approve monthly payments submitted by your passengers.</p>
+
+            {allPayments.length === 0 && (
+              <p className="text-sm text-gray-400 italic text-center py-4">No payment submissions yet.</p>
+            )}
+
+            {allPayments.map(passenger => (
+              passenger.payments && passenger.payments.length > 0 && (
+                <div key={passenger.passengerId} className="mb-6">
+                  <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <span className="w-7 h-7 bg-brand-light text-brand rounded-full flex items-center justify-center font-bold text-xs">
+                      {passenger.name?.charAt(0)}
+                    </span>
+                    {passenger.name} <span className="text-gray-400 font-normal text-xs">({passenger.email})</span>
+                  </h4>
+                  <div className="space-y-3">
+                    {passenger.payments.map((p) => (
+                      <div key={p._id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        {p.imageUrl && (
+                          <a href={p.imageUrl} target="_blank" rel="noreferrer">
+                            <img src={p.imageUrl} alt="receipt" className="w-20 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity flex-shrink-0" />
+                          </a>
+                        )}
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-800">{p.month} &nbsp;•&nbsp; LKR {p.amount?.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Submitted: {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}
+                            {p.reviewedAt && ` • Reviewed: ${new Date(p.reviewedAt).toLocaleDateString()}`}
+                          </p>
+                          {p.status === 'pending' && (
+                            <div className="mt-2 flex flex-col gap-2">
+                              <input
+                                type="text"
+                                placeholder="Optional note for passenger..."
+                                value={reviewNotes[p._id] || ''}
+                                onChange={e => setReviewNotes(n => ({ ...n, [p._id]: e.target.value }))}
+                                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs w-full focus:outline-none focus:ring-1 focus:ring-brand"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => reviewPayment(passenger.passengerId, p._id, 'approved')}
+                                  className="flex-1 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors"
+                                >✅ Approve</button>
+                                <button
+                                  onClick={() => reviewPayment(passenger.passengerId, p._id, 'rejected')}
+                                  className="flex-1 py-1.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors"
+                                >❌ Reject</button>
+                              </div>
+                            </div>
+                          )}
+                          {p.note && <p className="text-xs text-gray-500 italic mt-1">Note: {p.note}</p>}
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide flex-shrink-0 ${
+                          p.status === 'approved' ? 'bg-green-100 text-green-700' :
+                          p.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
+        </div>
+
       </main>
     </div>
   );

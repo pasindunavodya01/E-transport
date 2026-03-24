@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, Image, ActivityIndicator } from 'react-native';
 import axios from 'axios';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
 import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
 import { geocodeAddress } from '../services/mapServices';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function PassengerDashboard({ route, navigation }) {
   const { user, token } = route.params || {};
@@ -32,8 +33,16 @@ export default function PassengerDashboard({ route, navigation }) {
   const [isDriverActive, setIsDriverActive] = useState(false);
   const socketRef = React.useRef(null);
 
+  // Payment state
+  const [payments, setPayments] = useState([]);
+  const [paymentMonth, setPaymentMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentImage, setPaymentImage] = useState(null); // { uri, type, name }
+  const [paymentUploading, setPaymentUploading] = useState(false);
+
   useEffect(() => {
     fetchDriverDetails();
+    fetchPayments();
   }, []);
 
   useEffect(() => {
@@ -70,6 +79,60 @@ export default function PassengerDashboard({ route, navigation }) {
       setDriverProfile(response.data);
     } catch (error) {
       console.error('Failed to fetch driver details:', error);
+    }
+  };
+
+  const fetchPayments = async () => {
+    try {
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/my-payments`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setPayments(response.data || []);
+    } catch (err) {
+      console.error('Failed to fetch payments:', err);
+    }
+  };
+
+  const pickReceiptImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { Alert.alert('Permission needed', 'Please allow media access.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      setPaymentImage({ uri: asset.uri, type: asset.mimeType || 'image/jpeg', name: asset.fileName || 'receipt.jpg' });
+    }
+  };
+
+  const uploadPayment = async () => {
+    if (!paymentImage || !paymentAmount || !paymentMonth) {
+      Alert.alert('Missing fields', 'Please pick a month, enter amount, and select a receipt image.');
+      return;
+    }
+    setPaymentUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('month', paymentMonth);
+      formData.append('amount', paymentAmount);
+      formData.append('receipt', { uri: paymentImage.uri, type: paymentImage.type, name: paymentImage.name });
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/upload`,
+        formData,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+      );
+      setPayments(response.data.payments ? [...response.data.payments].sort((a,b) => b.month.localeCompare(a.month)) : []);
+      setPaymentImage(null);
+      setPaymentAmount('');
+      Alert.alert('Success', 'Payment receipt submitted!');
+    } catch (err) {
+      console.error('Upload payment failed:', err);
+      Alert.alert('Error', 'Failed to upload payment. Check Cloudinary credentials.');
+    } finally {
+      setPaymentUploading(false);
     }
   };
 
@@ -552,6 +615,86 @@ export default function PassengerDashboard({ route, navigation }) {
             </View>
           )}
         </View>
+
+        {/* ── Monthly Payments ── */}
+        <View style={[styles.card, {marginTop: 16}]}>
+          <Text style={styles.cardTitle}>💳 Monthly Payments</Text>
+          <Text style={{fontSize: 12, color: '#888', marginBottom: 12}}>Upload your monthly payment receipt. Driver will verify it.</Text>
+
+          {/* Month input */}
+          <Text style={styles.miniTitle}>Payment Month (YYYY-MM)</Text>
+          <TextInput
+            style={styles.input}
+            value={paymentMonth}
+            onChangeText={setPaymentMonth}
+            placeholder="2026-03"
+            placeholderTextColor="#aaa"
+          />
+
+          {/* Amount input */}
+          <Text style={[styles.miniTitle, {marginTop: 10}]}>Amount (LKR)</Text>
+          <TextInput
+            style={styles.input}
+            value={paymentAmount}
+            onChangeText={setPaymentAmount}
+            placeholder="e.g. 3500"
+            keyboardType="numeric"
+            placeholderTextColor="#aaa"
+          />
+
+          {/* Image picker */}
+          <TouchableOpacity style={[styles.saveBtn, {marginTop: 12, backgroundColor: '#6366f1'}]} onPress={pickReceiptImage}>
+            <Text style={styles.saveBtnText}>📷 Pick Receipt Image</Text>
+          </TouchableOpacity>
+
+          {paymentImage && (
+            <Image source={{ uri: paymentImage.uri }} style={{ width: '100%', height: 150, borderRadius: 10, marginTop: 10, resizeMode: 'cover' }} />
+          )}
+
+          <TouchableOpacity
+            style={[styles.saveBtn, {marginTop: 12, opacity: paymentUploading ? 0.6 : 1}]}
+            onPress={uploadPayment}
+            disabled={paymentUploading}
+          >
+            {paymentUploading
+              ? <ActivityIndicator color="white" />
+              : <Text style={styles.saveBtnText}>Submit Receipt</Text>
+            }
+          </TouchableOpacity>
+
+          {/* Payment history */}
+          {payments.length > 0 && (
+            <View style={{marginTop: 16}}>
+              <Text style={styles.miniTitle}>Payment History</Text>
+              {payments.map((p, i) => (
+                <View key={i} style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0'}}>
+                  {p.imageUrl && (
+                    <Image source={{ uri: p.imageUrl }} style={{ width: 52, height: 52, borderRadius: 8 }} />
+                  )}
+                  <View style={{flex: 1}}>
+                    <Text style={{fontWeight: 'bold', fontSize: 13, color: '#333'}}>{p.month}  •  LKR {p.amount?.toLocaleString()}</Text>
+                    <Text style={{fontSize: 11, color: '#888'}}>
+                      {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : ''}
+                    </Text>
+                    {p.note ? <Text style={{fontSize: 11, color: '#666', fontStyle: 'italic'}}>Note: {p.note}</Text> : null}
+                  </View>
+                  <View style={{
+                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10,
+                    backgroundColor: p.status === 'approved' ? '#e8f5e9' : p.status === 'rejected' ? '#ffebee' : '#fff8e1'
+                  }}>
+                    <Text style={{
+                      fontSize: 10, fontWeight: 'bold',
+                      color: p.status === 'approved' ? '#2e7d32' : p.status === 'rejected' ? '#c62828' : '#e65100'
+                    }}>
+                      {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
       </ScrollView>
     </View>
   );
