@@ -5,7 +5,8 @@ import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
 import * as Location from 'expo-location';
 import { io } from 'socket.io-client';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
+import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
+import { geocodeAddress, fetchRoutePolyline } from '../services/mapServices';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
 
@@ -24,6 +25,9 @@ export default function DriverDashboard({ route, navigation }) {
   const [currentLocation, setCurrentLocation] = useState(initialUser?.currentLocation || null);
   const socketRef = React.useRef(null);
   const locationSubRef = React.useRef(null);
+  const [routePolylines, setRoutePolylines] = useState(
+    (initialUser?.routes || []).filter(r => r.polyline).map(r => ({ points: JSON.parse(r.polyline) }))
+  );
 
   useEffect(() => {
     fetchPassengers();
@@ -122,13 +126,33 @@ export default function DriverDashboard({ route, navigation }) {
 
   const handleSaveRoute = async () => {
     try {
+      // Geocode start/end of each route and fetch OSRM polylines
+      const enrichedRoutes = await Promise.all((routeData.routes || []).map(async (r) => {
+        if (!r.route) return r;
+        const parts = r.route.split(/ - | to |,/i);
+        if (parts.length < 2) return r;
+        const [startGeo, endGeo] = await Promise.all([
+          geocodeAddress(parts[0].trim()),
+          geocodeAddress(parts[parts.length - 1].trim())
+        ]);
+        if (startGeo && endGeo) {
+          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo);
+          return { ...r, polyline: polylinePoints ? JSON.stringify(polylinePoints) : undefined };
+        }
+        return r;
+      }));
+
       const response = await axios.put(`${API_URL}/update-route`, {
-        routes: routeData.routes,
+        routes: enrichedRoutes,
         totalSeats: parseInt(routeData.totalSeats) || 0
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setUser(response.data);
+      const polys = (response.data.routes || [])
+        .filter(r => r.polyline)
+        .map(r => ({ points: JSON.parse(r.polyline) }));
+      setRoutePolylines(polys);
       setIsEditingRoute(false);
     } catch (error) {
       console.error('Failed to update route:', error);
@@ -353,11 +377,40 @@ export default function DriverDashboard({ route, navigation }) {
                           flipY={false}
                         />
                       )}
+                      {/* Driver live position */}
                       <Marker coordinate={{latitude: currentLocation.lat, longitude: currentLocation.lng}}>
                         <View style={styles.markerContainer}>
                           <View style={styles.markerDot} />
                         </View>
                       </Marker>
+                      {/* Route polylines */}
+                      {routePolylines.map((poly, i) => (
+                        <Polyline
+                          key={i}
+                          coordinates={poly.points}
+                          strokeColor="#3B82F6"
+                          strokeWidth={3}
+                        />
+                      ))}
+                      {/* Passenger pickup & dropoff markers */}
+                      {passengers.map(p => (
+                        <React.Fragment key={p._id}>
+                          {p.pickupLocation?.lat && (
+                            <Marker
+                              coordinate={{ latitude: p.pickupLocation.lat, longitude: p.pickupLocation.lng }}
+                              title={`${p.name}: Pickup`}
+                              pinColor="green"
+                            />
+                          )}
+                          {p.dropoffLocation?.lat && (
+                            <Marker
+                              coordinate={{ latitude: p.dropoffLocation.lat, longitude: p.dropoffLocation.lng }}
+                              title={`${p.name}: Drop-off`}
+                              pinColor="red"
+                            />
+                          )}
+                        </React.Fragment>
+                      ))}
                     </MapView>
                   ) : (
                     <View style={styles.mapLoading}>

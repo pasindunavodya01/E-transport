@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
+import { geocodeAddress } from '../services/mapServices';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -111,9 +112,24 @@ export default function PassengerDashboard() {
   const handleSaveLocations = async () => {
     try {
       const token = localStorage.getItem('userToken');
+      
+      // Geocode pickup and dropoff in parallel
+      const [pickupGeo, dropoffGeo] = await Promise.all([
+        geocodeAddress(locationData.pickupLocation),
+        geocodeAddress(locationData.dropoffLocation)
+      ]);
+
+      const pickupPayload = pickupGeo
+        ? { address: locationData.pickupLocation, lat: pickupGeo.lat, lng: pickupGeo.lng }
+        : locationData.pickupLocation; // fallback: save as plain string if geocoding fails
+
+      const dropoffPayload = dropoffGeo
+        ? { address: locationData.dropoffLocation, lat: dropoffGeo.lat, lng: dropoffGeo.lng }
+        : locationData.dropoffLocation;
+
       const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-locations`, {
-        pickupLocation: locationData.pickupLocation,
-        dropoffLocation: locationData.dropoffLocation
+        pickupLocation: pickupPayload,
+        dropoffLocation: dropoffPayload
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -334,8 +350,18 @@ export default function PassengerDashboard() {
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       />
                       <Marker position={[driverLocation.lat, driverLocation.lng]}>
-                        <Popup>Driver's Live Location</Popup>
+                        <Popup>🚐 Driver's Live Location</Popup>
                       </Marker>
+                      {profile?.pickupLocation?.lat && (
+                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]}>
+                          <Popup>📍 Your Pickup: {profile.pickupLocation.address}</Popup>
+                        </Marker>
+                      )}
+                      {profile?.dropoffLocation?.lat && (
+                        <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]}>
+                          <Popup>🏁 Your Drop-off: {profile.dropoffLocation.address}</Popup>
+                        </Marker>
+                      )}
                     </MapContainer>
                   ) : (
                     <div className="text-gray-500 animate-pulse font-medium">Connecting to driver's GPS...</div>
@@ -378,15 +404,55 @@ export default function PassengerDashboard() {
                   <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center sm:text-left">
                     <p className="text-sm text-gray-500 mb-1">Pickup</p>
                     <p className="font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-2">
-                      <MapPin className="w-4 h-4 text-brand" /> {profile?.pickupLocation || 'Not set'}
+                      <MapPin className="w-4 h-4 text-green-600" /> {profile?.pickupLocation?.address || profile?.pickupLocation || 'Not set'}
                     </p>
+                    {profile?.pickupLocation?.lat && (
+                      <p className="text-xs text-gray-400 mt-1">{profile.pickupLocation.lat.toFixed(5)}, {profile.pickupLocation.lng.toFixed(5)}</p>
+                    )}
                   </div>
                   <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center sm:text-left">
                     <p className="text-sm text-gray-500 mb-1">Drop-off</p>
                     <p className="font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-2">
-                      <MapPin className="w-4 h-4 text-brand" /> {profile?.dropoffLocation || 'Not set'}
+                      <MapPin className="w-4 h-4 text-red-500" /> {profile?.dropoffLocation?.address || profile?.dropoffLocation || 'Not set'}
                     </p>
+                    {profile?.dropoffLocation?.lat && (
+                      <p className="text-xs text-gray-400 mt-1">{profile.dropoffLocation.lat.toFixed(5)}, {profile.dropoffLocation.lng.toFixed(5)}</p>
+                    )}
                   </div>
+                  {/* Mini map showing pickup & dropoff pins */}
+                  {profile?.pickupLocation?.lat && (
+                    <div className="sm:col-span-2 h-52 rounded-xl overflow-hidden border border-gray-200">
+                      <MapContainer
+                        center={[profile.pickupLocation.lat, profile.pickupLocation.lng]}
+                        zoom={13}
+                        style={{ height: '100%', width: '100%', zIndex: 0 }}
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]}>
+                          <Popup>📍 Pickup: {profile.pickupLocation.address}</Popup>
+                        </Marker>
+                        {profile?.dropoffLocation?.lat && (
+                          <>
+                            <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]}>
+                              <Popup>🏁 Drop-off: {profile.dropoffLocation.address}</Popup>
+                            </Marker>
+                            <Polyline
+                              positions={[
+                                [profile.pickupLocation.lat, profile.pickupLocation.lng],
+                                [profile.dropoffLocation.lat, profile.dropoffLocation.lng]
+                              ]}
+                              color="#3B82F6"
+                              weight={3}
+                              dashArray="8 6"
+                            />
+                          </>
+                        )}
+                      </MapContainer>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

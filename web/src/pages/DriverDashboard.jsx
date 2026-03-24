@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle, Navigation } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
+import { geocodeAddress, fetchRoutePolyline } from '../services/mapServices';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -24,6 +25,7 @@ export default function DriverDashboard() {
   const [isTripActive, setIsTripActive] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const currentLocationRef = React.useRef(null);
+  const [routePolylines, setRoutePolylines] = useState([]); // array of {points:[{lat,lng}]}
   
   const navigate = useNavigate();
 
@@ -52,6 +54,13 @@ export default function DriverDashboard() {
         setIsTripActive(data.isTripActive || false);
         if (data.currentLocation) {
           setCurrentLocation(data.currentLocation);
+        }
+        // Rehydrate saved polylines from routes
+        if (data.routes) {
+          const polys = data.routes
+            .filter(r => r.polyline)
+            .map(r => ({ points: JSON.parse(r.polyline) }));
+          setRoutePolylines(polys);
         }
       } catch (error) {
         console.error('Error fetching driver profile', error);
@@ -141,13 +150,33 @@ export default function DriverDashboard() {
   const handleSaveRoute = async () => {
     try {
       const token = localStorage.getItem('userToken');
+
+      // Geocode each route's start and end to get a polyline
+      const enrichedRoutes = await Promise.all(routeData.routes.map(async (r) => {
+        if (!r.route || !r.route.includes(' ')) return r;
+        // Split on common separators: ' - ', ' to ', ','
+        const parts = r.route.split(/ - | to |,/i);
+        if (parts.length < 2) return r;
+        const [start, end] = parts;
+        const [startGeo, endGeo] = await Promise.all([geocodeAddress(start.trim()), geocodeAddress(end.trim())]);
+        if (startGeo && endGeo) {
+          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo);
+          return { ...r, polyline: polylinePoints ? JSON.stringify(polylinePoints) : undefined };
+        }
+        return r;
+      }));
+
       const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-route`, {
-        routes: routeData.routes,
+        routes: enrichedRoutes,
         totalSeats: parseInt(routeData.totalSeats) || 0
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setProfile(data);
+      const polys = (data.routes || [])
+        .filter(r => r.polyline)
+        .map(r => ({ points: JSON.parse(r.polyline) }));
+      setRoutePolylines(polys);
       setIsEditingRoute(false);
     } catch (error) {
       console.error('Error updating route', error);
@@ -237,14 +266,40 @@ export default function DriverDashboard() {
               {isTripActive ? (
                 <div className="w-full h-80 rounded-xl overflow-hidden border border-gray-200 shadow-inner bg-gray-50 flex items-center justify-center relative">
                   {currentLocation ? (
-                    <MapContainer center={[currentLocation.lat, currentLocation.lng]} zoom={15} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                    <MapContainer center={[currentLocation.lat, currentLocation.lng]} zoom={14} style={{ height: '100%', width: '100%', zIndex: 0 }}>
                       <TileLayer
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       />
+                      {/* Driver live position */}
                       <Marker position={[currentLocation.lat, currentLocation.lng]}>
-                        <Popup>Broadcasting Location LIVE</Popup>
+                        <Popup>🚐 Broadcasting Location LIVE</Popup>
                       </Marker>
+                      {/* Route polylines */}
+                      {routePolylines.map((poly, i) => (
+                        <Polyline
+                          key={i}
+                          positions={poly.points.map(p => [p.lat, p.lng])}
+                          color="#3B82F6"
+                          weight={4}
+                          opacity={0.7}
+                        />
+                      ))}
+                      {/* Passenger pickup & dropoff markers */}
+                      {passengers.map(p => (
+                        <React.Fragment key={p._id}>
+                          {p.pickupLocation?.lat && (
+                            <Marker position={[p.pickupLocation.lat, p.pickupLocation.lng]}>
+                              <Popup>📍 {p.name}: Pickup</Popup>
+                            </Marker>
+                          )}
+                          {p.dropoffLocation?.lat && (
+                            <Marker position={[p.dropoffLocation.lat, p.dropoffLocation.lng]}>
+                              <Popup>🏁 {p.name}: Drop-off</Popup>
+                            </Marker>
+                          )}
+                        </React.Fragment>
+                      ))}
                     </MapContainer>
                   ) : (
                     <div className="text-gray-500 animate-pulse font-medium">Acquiring GPS Signal...</div>

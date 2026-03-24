@@ -12,7 +12,8 @@ const userSchema = new mongoose.Schema({
   vehicleType: { type: String },
   routes: [{
     route: { type: String },
-    startTime: { type: String }
+    startTime: { type: String },
+    polyline: { type: String }
   }],
   totalSeats: { type: Number },
   isTripActive: { type: Boolean, default: false },
@@ -24,8 +25,8 @@ const userSchema = new mongoose.Schema({
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },
-  pickupLocation: { type: String },
-  dropoffLocation: { type: String },
+  pickupLocation: { type: mongoose.Schema.Types.Mixed },
+  dropoffLocation: { type: mongoose.Schema.Types.Mixed },
   absences: [{
     date: { type: String },
     period: { type: String, enum: ['Morning', 'Evening', 'Both'], default: 'Both' }

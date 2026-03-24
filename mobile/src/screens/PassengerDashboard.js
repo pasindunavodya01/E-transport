@@ -4,7 +4,8 @@ import axios from 'axios';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
+import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
+import { geocodeAddress } from '../services/mapServices';
 
 export default function PassengerDashboard({ route, navigation }) {
   const { user, token } = route.params || {};
@@ -12,8 +13,8 @@ export default function PassengerDashboard({ route, navigation }) {
   const [currentUser, setCurrentUser] = useState(user);
   const [isEditingLocations, setIsEditingLocations] = useState(false);
   const [locationData, setLocationData] = useState({
-    pickupLocation: user?.pickupLocation || '',
-    dropoffLocation: user?.dropoffLocation || ''
+    pickupLocation: user?.pickupLocation?.address || user?.pickupLocation || '',
+    dropoffLocation: user?.dropoffLocation?.address || user?.dropoffLocation || ''
   });
   const [absences, setAbsences] = useState(user?.absences || []);
   const [selectedDateType, setSelectedDateType] = useState('Today');
@@ -74,9 +75,20 @@ export default function PassengerDashboard({ route, navigation }) {
 
   const handleSaveLocations = async () => {
     try {
+      const [pickupGeo, dropoffGeo] = await Promise.all([
+        geocodeAddress(locationData.pickupLocation),
+        geocodeAddress(locationData.dropoffLocation)
+      ]);
+      const pickupPayload = pickupGeo
+        ? { address: locationData.pickupLocation, lat: pickupGeo.lat, lng: pickupGeo.lng }
+        : locationData.pickupLocation;
+      const dropoffPayload = dropoffGeo
+        ? { address: locationData.dropoffLocation, lat: dropoffGeo.lat, lng: dropoffGeo.lng }
+        : locationData.dropoffLocation;
+
       const response = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-locations`, {
-        pickupLocation: locationData.pickupLocation,
-        dropoffLocation: locationData.dropoffLocation
+        pickupLocation: pickupPayload,
+        dropoffLocation: dropoffPayload
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -307,11 +319,27 @@ export default function PassengerDashboard({ route, navigation }) {
                       flipY={false}
                     />
                   )}
+                  {/* Driver live position */}
                   <Marker coordinate={{latitude: driverLocation.lat, longitude: driverLocation.lng}}>
                     <View style={styles.markerContainer}>
                       <View style={styles.markerDot} />
                     </View>
                   </Marker>
+                  {/* Passenger's own pickup & dropoff pins */}
+                  {currentUser?.pickupLocation?.lat && (
+                    <Marker
+                      coordinate={{ latitude: currentUser.pickupLocation.lat, longitude: currentUser.pickupLocation.lng }}
+                      title="Your Pickup"
+                      pinColor="green"
+                    />
+                  )}
+                  {currentUser?.dropoffLocation?.lat && (
+                    <Marker
+                      coordinate={{ latitude: currentUser.dropoffLocation.lat, longitude: currentUser.dropoffLocation.lng }}
+                      title="Your Drop-off"
+                      pinColor="red"
+                    />
+                  )}
                 </MapView>
               ) : (
                 <View style={styles.mapLoading}>
