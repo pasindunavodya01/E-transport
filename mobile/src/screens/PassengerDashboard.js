@@ -383,9 +383,9 @@ export default function PassengerDashboard({ route, navigation }) {
                     />
                   )}
                   {/* Driver live position */}
-                  <Marker coordinate={{latitude: driverLocation.lat, longitude: driverLocation.lng}}>
-                    <View style={styles.markerContainer}>
-                      <View style={styles.markerDot} />
+                  <Marker coordinate={{latitude: driverLocation.lat, longitude: driverLocation.lng}} zIndex={1000}>
+                    <View style={{ backgroundColor: '#f59e0b', padding: 6, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 4, elevation: 6 }}>
+                      <FontAwesome5 name="bus" size={16} color="white" />
                     </View>
                   </Marker>
                   {/* Passenger's own pickup & dropoff pins */}
@@ -393,15 +393,21 @@ export default function PassengerDashboard({ route, navigation }) {
                     <Marker
                       coordinate={{ latitude: currentUser.pickupLocation.lat, longitude: currentUser.pickupLocation.lng }}
                       title="Your Pickup"
-                      pinColor="green"
-                    />
+                    >
+                      <View style={{ backgroundColor: '#10b981', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 5 }}>
+                        <MaterialIcons name="person-pin-circle" size={20} color="white" />
+                      </View>
+                    </Marker>
                   )}
                   {currentUser?.dropoffLocation?.lat && (
                     <Marker
                       coordinate={{ latitude: currentUser.dropoffLocation.lat, longitude: currentUser.dropoffLocation.lng }}
                       title="Your Drop-off"
-                      pinColor="red"
-                    />
+                    >
+                      <View style={{ backgroundColor: '#ef4444', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 5 }}>
+                        <MaterialIcons name="location-on" size={20} color="white" />
+                      </View>
+                    </Marker>
                   )}
                 </MapView>
               ) : (

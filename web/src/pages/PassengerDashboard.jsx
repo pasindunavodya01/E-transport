@@ -15,6 +15,32 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
 });
 
+// Custom Icons
+const vehicleIcon = L.divIcon({
+  html: `<div style="background-color: #f59e0b; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 6px rgba(0,0,0,0.3); border: 2px solid white;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg></div>`,
+  className: 'custom-vehicle-icon',
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+  popupAnchor: [0, -17]
+});
+
+const pickupIcon = L.divIcon({
+  html: `<div style="color: #10b981; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.5)); transform: translateY(-4px);"><svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="currentColor" stroke="white" stroke-width="1.5"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white"/></svg></div>`,
+  className: 'custom-pickup-icon',
+  iconSize: [38, 38],
+  iconAnchor: [19, 38],
+  popupAnchor: [0, -38]
+});
+
+const dropoffIcon = L.divIcon({
+  html: `<div style="color: #ef4444; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.5)); transform: translateY(-4px);"><svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="currentColor" stroke="white" stroke-width="1.5"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white"/></svg></div>`,
+  className: 'custom-dropoff-icon',
+  iconSize: [38, 38],
+  iconAnchor: [19, 38],
+  popupAnchor: [0, -38]
+});
+
+
 export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
   const [driverProfile, setDriverProfile] = useState(null);
@@ -397,16 +423,16 @@ export default function PassengerDashboard() {
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                       />
-                      <Marker position={[driverLocation.lat, driverLocation.lng]}>
+                      <Marker position={[driverLocation.lat, driverLocation.lng]} icon={vehicleIcon} zIndexOffset={1000}>
                         <Popup>🚐 Driver's Live Location</Popup>
                       </Marker>
                       {profile?.pickupLocation?.lat && (
-                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]}>
+                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]} icon={pickupIcon}>
                           <Popup>📍 Your Pickup: {profile.pickupLocation.address}</Popup>
                         </Marker>
                       )}
                       {profile?.dropoffLocation?.lat && (
-                        <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]}>
+                        <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]} icon={dropoffIcon}>
                           <Popup>🏁 Your Drop-off: {profile.dropoffLocation.address}</Popup>
                         </Marker>
                       )}
@@ -479,12 +505,12 @@ export default function PassengerDashboard() {
                           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
-                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]}>
+                        <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]} icon={pickupIcon}>
                           <Popup>📍 Pickup: {profile.pickupLocation.address}</Popup>
                         </Marker>
                         {profile?.dropoffLocation?.lat && (
                           <>
-                            <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]}>
+                            <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]} icon={dropoffIcon}>
                               <Popup>🏁 Drop-off: {profile.dropoffLocation.address}</Popup>
                             </Marker>
                             <Polyline
