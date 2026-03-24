@@ -15,6 +15,12 @@ const userSchema = new mongoose.Schema({
     startTime: { type: String }
   }],
   totalSeats: { type: Number },
+  isTripActive: { type: Boolean, default: false },
+  currentLocation: {
+    lat: { type: Number },
+    lng: { type: Number },
+    timestamp: { type: Date }
+  },
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },

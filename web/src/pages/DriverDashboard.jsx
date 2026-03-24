@@ -1,7 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle } from 'lucide-react';
+import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle, Navigation } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import { io } from 'socket.io-client';
+import L from 'leaflet';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+});
 
 export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
@@ -10,7 +21,15 @@ export default function DriverDashboard() {
   const [loadingPassengers, setLoadingPassengers] = useState(true);
   const [isEditingRoute, setIsEditingRoute] = useState(false);
   const [routeData, setRouteData] = useState({ routes: [], totalSeats: '' });
+  const [isTripActive, setIsTripActive] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const currentLocationRef = React.useRef(null);
+  
   const navigate = useNavigate();
+
+  useEffect(() => {
+    currentLocationRef.current = currentLocation;
+  }, [currentLocation]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -30,6 +49,10 @@ export default function DriverDashboard() {
           routes: data.routes || [],
           totalSeats: data.totalSeats || ''
         });
+        setIsTripActive(data.isTripActive || false);
+        if (data.currentLocation) {
+          setCurrentLocation(data.currentLocation);
+        }
       } catch (error) {
         console.error('Error fetching driver profile', error);
         navigate('/login');
@@ -60,6 +83,49 @@ export default function DriverDashboard() {
     fetchPassengers();
   }, []);
 
+  useEffect(() => {
+    let watchId;
+    let newSocket;
+    let interval;
+
+    if (isTripActive && profile) {
+      newSocket = io(import.meta.env.VITE_API_URL.replace('/api', ''), { transports: ['websocket'] });
+      
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const loc = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            timestamp: new Date()
+          };
+          setCurrentLocation(loc);
+          newSocket.emit('driver_location_update', {
+            driverId: profile.uid,
+            ...loc
+          });
+        },
+        (error) => console.error('Geolocation error:', error),
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
+      
+      interval = setInterval(() => {
+        const loc = currentLocationRef.current;
+        if (loc) {
+            const token = localStorage.getItem('userToken');
+            axios.put(`${import.meta.env.VITE_API_URL}/auth/update-location`, loc, {
+              headers: { Authorization: `Bearer ${token}` }
+            }).catch(console.error);
+        }
+      }, 30000);
+    }
+
+    return () => {
+      if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+      if (interval) clearInterval(interval);
+      if (newSocket) newSocket.disconnect();
+    };
+  }, [isTripActive, profile]);
+
   const getTodayStr = () => {
     const d = new Date();
     const tzOffset = d.getTimezoneOffset() * 60000;
@@ -86,6 +152,23 @@ export default function DriverDashboard() {
     } catch (error) {
       console.error('Error updating route', error);
       alert('Failed to update route information');
+    }
+  };
+
+  const toggleTrip = async () => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const endpoint = isTripActive ? 'end-trip' : 'start-trip';
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setIsTripActive(data.isTripActive);
+      if (!data.isTripActive) {
+        setCurrentLocation(null);
+      }
+    } catch (error) {
+      console.error('Toggle trip error', error);
+      alert('Could not toggle trip state.');
     }
   };
 
@@ -136,6 +219,42 @@ export default function DriverDashboard() {
                   <p className="flex items-center gap-3 text-gray-800"><Car className="w-5 h-5 text-brand" /> <span className="font-medium">Type:</span> <span className="capitalize">{profile?.vehicleType}</span></p>
                 </div>
               </div>
+            </div>
+
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Navigation className="w-5 h-5 text-brand" /> Live Trip Tracking
+                </h3>
+                <button 
+                  onClick={toggleTrip} 
+                  className={`px-4 py-2 text-sm font-bold rounded-lg shadow-sm transition-colors ${isTripActive ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                >
+                  {isTripActive ? 'End Trip Tracking' : 'Start Live Tracking'}
+                </button>
+              </div>
+
+              {isTripActive ? (
+                <div className="w-full h-80 rounded-xl overflow-hidden border border-gray-200 shadow-inner bg-gray-50 flex items-center justify-center relative">
+                  {currentLocation ? (
+                    <MapContainer center={[currentLocation.lat, currentLocation.lng]} zoom={15} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      <Marker position={[currentLocation.lat, currentLocation.lng]}>
+                        <Popup>Broadcasting Location LIVE</Popup>
+                      </Marker>
+                    </MapContainer>
+                  ) : (
+                    <div className="text-gray-500 animate-pulse font-medium">Acquiring GPS Signal...</div>
+                  )}
+                </div>
+              ) : (
+                <div className="w-full h-24 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50 text-gray-500 italic">
+                  Trip is currently inactive. Start the trip to broadcast your location to passengers.
+                </div>
+              )}
             </div>
 
             <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">

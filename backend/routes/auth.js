@@ -256,4 +256,56 @@ router.put('/update-extra-bookings', verifyToken, async (req, res) => {
   }
 });
 
+// Start Trip
+router.put('/start-trip', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const driver = await User.findOneAndUpdate(
+      { uid, role: 'driver' },
+      { isTripActive: true },
+      { new: true }
+    );
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    res.json({ isTripActive: driver.isTripActive });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// End Trip
+router.put('/end-trip', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const driver = await User.findOneAndUpdate(
+      { uid, role: 'driver' },
+      { isTripActive: false },
+      { new: true }
+    );
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    res.json({ isTripActive: driver.isTripActive });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update Location
+router.put('/update-location', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { lat, lng } = req.body;
+    if (lat === undefined || lng === undefined) return res.status(400).json({ message: 'Coordinates required' });
+
+    const driver = await User.findOneAndUpdate(
+      { uid, role: 'driver' },
+      { currentLocation: { lat, lng, timestamp: new Date() } },
+      { new: true }
+    );
+    
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    res.json({ currentLocation: driver.currentLocation });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView 
 import axios from 'axios';
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { io } from 'socket.io-client';
+import MapView, { Marker, UrlTile } from 'react-native-maps';
 
 export default function PassengerDashboard({ route, navigation }) {
   const { user, token } = route.params || {};
@@ -25,9 +27,39 @@ export default function PassengerDashboard({ route, navigation }) {
   const [bookSeats, setBookSeats] = useState('1');
   const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
 
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [isDriverActive, setIsDriverActive] = useState(false);
+  const socketRef = React.useRef(null);
+
   useEffect(() => {
     fetchDriverDetails();
   }, []);
+
+  useEffect(() => {
+    if (driverProfile && driverProfile.isTripActive) {
+      setIsDriverActive(true);
+      if (driverProfile.currentLocation) {
+        setDriverLocation(driverProfile.currentLocation);
+      }
+
+      socketRef.current = io(process.env.EXPO_PUBLIC_API_URL.replace('/api', ''), { transports: ['websocket'] });
+      
+      socketRef.current.on(`live_location_${driverProfile.uid}`, (loc) => {
+        setIsDriverActive(true);
+        setDriverLocation(loc);
+      });
+    } else {
+      setIsDriverActive(false);
+      setDriverLocation(null);
+    }
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [driverProfile]);
 
   const fetchDriverDetails = async () => {
     try {
@@ -240,6 +272,57 @@ export default function PassengerDashboard({ route, navigation }) {
                 <MaterialIcons name="event-seat" size={20} color={Colors.light.primary} />
                 <Text style={styles.infoText}>{driverProfile.totalSeats || 'Not set'} seats configured</Text>
               </View>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.cardTitleNoMargin}>Live Trip Tracking</Text>
+            {isDriverActive && (
+              <View style={styles.liveBadgeBadge}>
+                <View style={styles.liveBadgeDot} />
+                <Text style={styles.liveBadgeText}>LIVE</Text>
+              </View>
+            )}
+          </View>
+
+          {isDriverActive ? (
+            <View style={styles.mapContainer}>
+              {driverLocation ? (
+                <MapView 
+                  style={styles.map} 
+                  region={{
+                    latitude: driverLocation.lat,
+                    longitude: driverLocation.lng,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01
+                  }}
+                  mapType={Platform.OS === "android" ? "none" : "standard"}
+                >
+                  {Platform.OS === 'android' && (
+                    <UrlTile
+                      urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      maximumZ={19}
+                      flipY={false}
+                    />
+                  )}
+                  <Marker coordinate={{latitude: driverLocation.lat, longitude: driverLocation.lng}}>
+                    <View style={styles.markerContainer}>
+                      <View style={styles.markerDot} />
+                    </View>
+                  </Marker>
+                </MapView>
+              ) : (
+                <View style={styles.mapLoading}>
+                  <ActivityIndicator size="large" color={Colors.light.primary} />
+                  <Text style={styles.mapLoadingText}>Connecting to driver GPS...</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.mapInactive}>
+              <Text style={styles.mapInactiveText}>{driverProfile ? "Driver has not started the trip." : "No driver assigned."}</Text>
             </View>
           )}
         </View>
@@ -504,5 +587,17 @@ const styles = StyleSheet.create({
   recordedAbsenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
   recordedAbsenceText: { fontSize: 15, fontWeight: 'bold', color: '#444' },
   recordedAbsencePeriod: { fontSize: 11, fontWeight: 'bold', color: '#e65100', textTransform: 'uppercase', marginTop: 3 },
-  removeText: { color: 'red', fontWeight: 'bold', fontSize: 13 }
+  removeText: { color: 'red', fontWeight: 'bold', fontSize: 13 },
+  
+  liveBadgeBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f5e9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  liveBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4caf50', marginRight: 4 },
+  liveBadgeText: { color: '#2e7d32', fontSize: 10, fontWeight: 'bold' },
+  mapContainer: { height: 200, width: '100%', borderRadius: 10, overflow: 'hidden', marginTop: 10, backgroundColor: '#f5f5f5' },
+  map: { flex: 1 },
+  mapLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapLoadingText: { marginTop: 10, color: '#666', fontStyle: 'italic', fontSize: 12 },
+  mapInactive: { height: 80, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#eee', borderStyle: 'dashed', borderRadius: 10, marginTop: 10 },
+  mapInactiveText: { color: '#888', fontStyle: 'italic', fontSize: 13 },
+  markerContainer: { width: 30, height: 30, backgroundColor: 'rgba(0,150,255,0.2)', borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  markerDot: { width: 12, height: 12, backgroundColor: '#007AFF', borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
 });

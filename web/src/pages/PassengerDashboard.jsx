@@ -1,7 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle } from 'lucide-react';
+import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import { io } from 'socket.io-client';
+import L from 'leaflet';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+});
 
 export default function PassengerDashboard() {
   const [profile, setProfile] = useState(null);
@@ -20,6 +31,9 @@ export default function PassengerDashboard() {
   const [bookingPeriod, setBookingPeriod] = useState('Morning');
   const [bookSeats, setBookSeats] = useState(1);
   const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
+
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [isDriverActive, setIsDriverActive] = useState(false);
 
   const navigate = useNavigate();
 
@@ -63,6 +77,30 @@ export default function PassengerDashboard() {
     };
     fetchProfile();
   }, [navigate]);
+
+  useEffect(() => {
+    let newSocket;
+    if (driverProfile && driverProfile.isTripActive) {
+      setIsDriverActive(true);
+      if (driverProfile.currentLocation) {
+        setDriverLocation(driverProfile.currentLocation);
+      }
+
+      newSocket = io(import.meta.env.VITE_API_URL.replace('/api', ''), { transports: ['websocket'] });
+      
+      newSocket.on(`live_location_${driverProfile.uid}`, (loc) => {
+        setIsDriverActive(true);
+        setDriverLocation(loc);
+      });
+    } else {
+      setIsDriverActive(false);
+      setDriverLocation(null);
+    }
+
+    return () => {
+      if (newSocket) newSocket.disconnect();
+    };
+  }, [driverProfile]);
 
   const handleLogout = () => {
     localStorage.removeItem('userToken');
@@ -273,6 +311,41 @@ export default function PassengerDashboard() {
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Navigation className="w-5 h-5 text-brand" /> Live Trip Tracking
+                </h3>
+                {isDriverActive && (
+                  <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold uppercase rounded-full flex items-center gap-1 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span> Live
+                  </span>
+                )}
+              </div>
+              
+              {isDriverActive ? (
+                <div className="w-full h-80 rounded-xl overflow-hidden border border-gray-200 shadow-inner bg-gray-50 flex items-center justify-center relative">
+                  {driverLocation ? (
+                    <MapContainer center={[driverLocation.lat, driverLocation.lng]} zoom={15} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      <Marker position={[driverLocation.lat, driverLocation.lng]}>
+                        <Popup>Driver's Live Location</Popup>
+                      </Marker>
+                    </MapContainer>
+                  ) : (
+                    <div className="text-gray-500 animate-pulse font-medium">Connecting to driver's GPS...</div>
+                  )}
+                </div>
+              ) : (
+                <div className="w-full h-24 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50 text-gray-500 italic text-center px-4">
+                  {driverProfile ? "Driver has not started the trip yet." : "No driver assigned."}
+                </div>
+              )}
             </div>
 
             <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">

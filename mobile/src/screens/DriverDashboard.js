@@ -3,6 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, 
 import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
+import * as Location from 'expo-location';
+import { io } from 'socket.io-client';
+import MapView, { Marker, UrlTile } from 'react-native-maps';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
 
@@ -17,9 +20,88 @@ export default function DriverDashboard({ route, navigation }) {
     totalSeats: initialUser?.totalSeats ? String(initialUser.totalSeats) : ''
   });
 
+  const [isTripActive, setIsTripActive] = useState(initialUser?.isTripActive || false);
+  const [currentLocation, setCurrentLocation] = useState(initialUser?.currentLocation || null);
+  const socketRef = React.useRef(null);
+  const locationSubRef = React.useRef(null);
+
   useEffect(() => {
     fetchPassengers();
   }, []);
+
+  useEffect(() => {
+    if (isTripActive && user) {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+
+    return () => stopTracking();
+  }, [isTripActive, user]);
+
+  const startTracking = async () => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Allow location access to broadcast your live position.');
+      setIsTripActive(false);
+      return;
+    }
+
+    socketRef.current = io(process.env.EXPO_PUBLIC_API_URL.replace('/api', ''), { transports: ['websocket'] });
+
+    locationSubRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 10000,
+        distanceInterval: 10,
+      },
+      (location) => {
+        const loc = {
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
+          timestamp: new Date()
+        };
+        setCurrentLocation(loc);
+        
+        if (socketRef.current) {
+          socketRef.current.emit('driver_location_update', {
+            driverId: user.uid,
+            ...loc
+          });
+        }
+
+        axios.put(`${API_URL}/update-location`, loc, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(() => {});
+      }
+    );
+  };
+
+  const stopTracking = () => {
+    if (locationSubRef.current) {
+      locationSubRef.current.remove();
+      locationSubRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+  };
+
+  const toggleTrip = async () => {
+    try {
+      const endpoint = isTripActive ? 'end-trip' : 'start-trip';
+      const response = await axios.put(`${API_URL}/${endpoint}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setIsTripActive(response.data.isTripActive);
+      if (!response.data.isTripActive) {
+        setCurrentLocation(null);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not toggle trip state.');
+    }
+  };
 
   const fetchPassengers = async () => {
     try {
@@ -236,6 +318,57 @@ export default function DriverDashboard({ route, navigation }) {
                     <MaterialIcons name="event-seat" size={20} color={Colors.light.primary} />
                     <Text style={[styles.infoText, {fontWeight: 'bold'}]}>{user?.totalSeats ? `${user.totalSeats} seats total` : 'Total seats not set'}</Text>
                   </View>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardTitleNoMargin}>Live Trip Tracking</Text>
+                <TouchableOpacity 
+                  style={[styles.startTripBtn, isTripActive ? styles.endTripBtn : {}]}
+                  onPress={toggleTrip}
+                >
+                  <Text style={styles.startTripBtnText}>{isTripActive ? 'End Trip' : 'Start Trip'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {isTripActive ? (
+                <View style={styles.mapContainer}>
+                  {currentLocation ? (
+                    <MapView 
+                      style={styles.map} 
+                      region={{
+                        latitude: currentLocation.lat,
+                        longitude: currentLocation.lng,
+                        latitudeDelta: 0.01,
+                        longitudeDelta: 0.01
+                      }}
+                      mapType={Platform.OS === "android" ? "none" : "standard"}
+                    >
+                      {Platform.OS === 'android' && (
+                        <UrlTile
+                          urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          maximumZ={19}
+                          flipY={false}
+                        />
+                      )}
+                      <Marker coordinate={{latitude: currentLocation.lat, longitude: currentLocation.lng}}>
+                        <View style={styles.markerContainer}>
+                          <View style={styles.markerDot} />
+                        </View>
+                      </Marker>
+                    </MapView>
+                  ) : (
+                    <View style={styles.mapLoading}>
+                      <ActivityIndicator size="large" color={Colors.light.primary} />
+                      <Text style={styles.mapLoadingText}>Acquiring GPS...</Text>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.mapInactive}>
+                  <Text style={styles.mapInactiveText}>Trip is currently inactive.</Text>
                 </View>
               )}
             </View>
