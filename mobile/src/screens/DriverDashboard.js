@@ -6,7 +6,7 @@ import axios from 'axios';
 import * as Location from 'expo-location';
 import { io } from 'socket.io-client';
 import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
-import { geocodeAddress, fetchRoutePolyline } from '../services/mapServices';
+import { geocodeAddress, fetchRoutePolyline, fetchRouteAlternatives } from '../services/mapServices';
 import * as ImagePicker from 'expo-image-picker';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
@@ -241,6 +241,9 @@ export default function DriverDashboard({ route, navigation }) {
     try {
       // Geocode start/end of each route and fetch OSRM polylines
       const enrichedRoutes = await Promise.all((routeData.routes || []).map(async (r) => {
+        if (r.polylineOverride) {
+          return { route: r.route, via: r.via, startTime: r.startTime, polyline: r.polylineOverride };
+        }
         if (!r.route) return r;
         const parts = r.route.split(/ - | to |,/i);
         if (parts.length < 2) return r;
@@ -248,8 +251,15 @@ export default function DriverDashboard({ route, navigation }) {
           geocodeAddress(parts[0].trim()),
           geocodeAddress(parts[parts.length - 1].trim())
         ]);
+        let viaGeoList = null;
+        if (r.via && r.via.trim()) {
+          const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
+          const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
+          viaGeoList = geoResults.filter(g => g !== null);
+          if (viaGeoList.length === 0) viaGeoList = null;
+        }
         if (startGeo && endGeo) {
-          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo);
+          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo, viaGeoList);
           return { ...r, polyline: polylinePoints ? JSON.stringify(polylinePoints) : undefined };
         }
         return r;
@@ -270,6 +280,49 @@ export default function DriverDashboard({ route, navigation }) {
     } catch (error) {
       console.error('Failed to update route:', error);
       Alert.alert('Error', 'Failed to update route information');
+    }
+  };
+
+  const handleFindAlternatives = async (index) => {
+    const r = routeData.routes[index];
+    if (!r.route) {
+      Alert.alert('Error', 'Please enter a route with start and end locations first.');
+      return;
+    }
+    const parts = r.route.split(/ - | to |,/i);
+    if (parts.length < 2) {
+      Alert.alert('Error', 'Please enter proper formatting e.g. Colombo - Kandy');
+      return;
+    }
+    try {
+      const [startGeo, endGeo] = await Promise.all([
+        geocodeAddress(parts[0].trim()),
+        geocodeAddress(parts[parts.length - 1].trim())
+      ]);
+      let viaGeoList = null;
+      if (r.via && r.via.trim()) {
+        const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
+        const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
+        viaGeoList = geoResults.filter(g => g !== null);
+        if (viaGeoList.length === 0) viaGeoList = null;
+      }
+      if (startGeo && endGeo) {
+        const alts = await fetchRouteAlternatives(startGeo, endGeo, viaGeoList);
+        if (alts && alts.length > 0) {
+          const newRoutes = [...routeData.routes];
+          newRoutes[index].alternatives = alts;
+          newRoutes[index].selectedAlternativeIndex = 0;
+          newRoutes[index].polylineOverride = alts[0].polyline;
+          setRouteData({...routeData, routes: newRoutes});
+        } else {
+          Alert.alert('Error', 'Could not generate alternative routes.');
+        }
+      } else {
+        Alert.alert('Error', 'Could not verify locations.');
+      }
+    } catch(err) {
+      console.error(err);
+      Alert.alert('Error', 'Failed fetching alternative routes.');
     }
   };
 
@@ -401,11 +454,48 @@ export default function DriverDashboard({ route, navigation }) {
                         <MaterialIcons name="close" size={20} color="red" />
                       </TouchableOpacity>
                       <Text style={styles.inputLabel}>Route (e.g., Colombo - Kandy)</Text>
-                      <TextInput style={styles.input} value={r.route} onChangeText={t => {
+                      <TextInput style={styles.input} value={r.route || ''} onChangeText={t => {
                           const newRoutes = [...routeData.routes];
                           newRoutes[index].route = t;
                           setRouteData({...routeData, routes: newRoutes});
                       }} placeholder="Enter route" />
+                      
+                      <Text style={styles.inputLabel}>Via (Optional Town/Highway)</Text>
+                      <View style={{flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 15}}>
+                        <TextInput style={[styles.input, {flex: 1, marginBottom: 0}]} value={r.via || ''} onChangeText={t => {
+                            const newRoutes = [...routeData.routes];
+                            newRoutes[index].via = t;
+                            setRouteData({...routeData, routes: newRoutes});
+                        }} placeholder="e.g. Kurunegala, Dambulla" />
+                        <TouchableOpacity style={[styles.saveRouteBtn, {marginBottom: 0, paddingVertical: 12}]} onPress={() => handleFindAlternatives(index)}>
+                          <Text style={styles.saveRouteBtnText}>Find Paths</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {r.alternatives && r.alternatives.length > 0 && (
+                        <View style={{ backgroundColor: '#eff6ff', padding: 10, borderRadius: 8, marginBottom: 15, borderColor: '#bfdbfe', borderWidth: 1 }}>
+                          <Text style={{ fontWeight: 'bold', color: '#1e3a8a', marginBottom: 5 }}>Select Preferred Path:</Text>
+                          {r.alternatives.map((alt, i) => (
+                            <TouchableOpacity 
+                              key={i} 
+                              style={{ padding: 10, backgroundColor: (r.selectedAlternativeIndex === i) ? '#bfdbfe' : 'transparent', borderRadius: 5, flexDirection: 'row', justifyContent: 'space-between' }}
+                              onPress={() => {
+                                const newRoutes = [...routeData.routes];
+                                newRoutes[index].selectedAlternativeIndex = i;
+                                newRoutes[index].polylineOverride = newRoutes[index].alternatives[i].polyline;
+                                setRouteData({...routeData, routes: newRoutes});
+                              }}
+                            >
+                              <Text style={{ fontWeight: (r.selectedAlternativeIndex === i) ? 'bold' : 'normal', color: '#1e40af' }}>
+                                Path {i + 1} {i === 0 ? '(Fastest)' : ''}
+                              </Text>
+                              <Text style={{ fontSize: 12, color: '#3b82f6' }}>
+                                {(alt.distance / 1000).toFixed(1)}km, {Math.round(alt.duration / 60)}m
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
                       
                       <Text style={styles.inputLabel}>Start Time (e.g., 08:00 AM)</Text>
                       <TextInput style={styles.input} value={r.startTime} onChangeText={t => {
@@ -418,7 +508,7 @@ export default function DriverDashboard({ route, navigation }) {
                   
                   <TouchableOpacity 
                     style={styles.addRouteBtn}
-                    onPress={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', startTime: '' }]})}
+                    onPress={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', via: '', startTime: '' }]})}
                   >
                     <Text style={styles.addRouteBtnText}>+ Add Route</Text>
                   </TouchableOpacity>
@@ -441,7 +531,7 @@ export default function DriverDashboard({ route, navigation }) {
                     <View key={index} style={styles.routeViewCard}>
                       <View style={styles.infoRow}>
                         <MaterialIcons name="map" size={20} color={Colors.light.primary} />
-                        <Text style={styles.infoText}>{r.route || 'Not set'}</Text>
+                        <Text style={styles.infoText}>{r.route || 'Not set'} {r.via ? `(via ${r.via})` : ''}</Text>
                       </View>
                       <View style={styles.infoRow}>
                         <MaterialIcons name="access-time" size={20} color={Colors.light.primary} />

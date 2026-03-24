@@ -6,7 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
-import { geocodeAddress, fetchRoutePolyline } from '../services/mapServices';
+import { geocodeAddress, fetchRoutePolyline, fetchRouteAlternatives } from '../services/mapServices';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -211,16 +211,26 @@ export default function DriverDashboard() {
     try {
       const token = localStorage.getItem('userToken');
 
-      // Geocode each route's start and end to get a polyline
+      // Geocode each route's start and end to get a polyline, unless overridden
       const enrichedRoutes = await Promise.all(routeData.routes.map(async (r) => {
+        if (r.polylineOverride) {
+          return { route: r.route, via: r.via, startTime: r.startTime, polyline: r.polylineOverride };
+        }
         if (!r.route || !r.route.includes(' ')) return r;
         // Split on common separators: ' - ', ' to ', ','
         const parts = r.route.split(/ - | to |,/i);
         if (parts.length < 2) return r;
         const [start, end] = parts;
         const [startGeo, endGeo] = await Promise.all([geocodeAddress(start.trim()), geocodeAddress(end.trim())]);
+        let viaGeoList = null;
+        if (r.via && r.via.trim()) {
+           const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
+           const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
+           viaGeoList = geoResults.filter(g => g !== null);
+           if (viaGeoList.length === 0) viaGeoList = null;
+        }
         if (startGeo && endGeo) {
-          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo);
+          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo, viaGeoList);
           return { ...r, polyline: polylinePoints ? JSON.stringify(polylinePoints) : undefined };
         }
         return r;
@@ -241,6 +251,44 @@ export default function DriverDashboard() {
     } catch (error) {
       console.error('Error updating route', error);
       alert('Failed to update route information');
+    }
+  };
+
+  const handleFindAlternatives = async (index) => {
+    const r = routeData.routes[index];
+    if (!r.route || !r.route.includes(' ')) {
+      alert("Please enter a route with a start and end, like 'Colombo - Kandy'.");
+      return;
+    }
+    const parts = r.route.split(/ - | to |,/i);
+    if (parts.length < 2) return;
+    const [start, end] = parts;
+    try {
+      const [startGeo, endGeo] = await Promise.all([geocodeAddress(start.trim()), geocodeAddress(end.trim())]);
+      let viaGeoList = null;
+      if (r.via && r.via.trim()) {
+         const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
+         const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
+         viaGeoList = geoResults.filter(g => g !== null);
+         if (viaGeoList.length === 0) viaGeoList = null;
+      }
+      if (startGeo && endGeo) {
+        const alts = await fetchRouteAlternatives(startGeo, endGeo, viaGeoList);
+        if (alts && alts.length > 0) {
+          const newRoutes = [...routeData.routes];
+          newRoutes[index].alternatives = alts;
+          newRoutes[index].selectedAlternativeIndex = 0;
+          newRoutes[index].polylineOverride = alts[0].polyline;
+          setRouteData({...routeData, routes: newRoutes});
+        } else {
+          alert('Could not generate alternative routes.');
+        }
+      } else {
+         alert('Could not verify locations.');
+      }
+    } catch(err) {
+      console.error(err);
+      alert('Error fetching alternative routes.');
     }
   };
 
@@ -463,12 +511,49 @@ export default function DriverDashboard() {
                       </button>
                       <div>
                         <label className="block text-sm text-gray-600 mb-1">Route (e.g., Colombo - Kandy)</label>
-                        <input type="text" value={r.route} onChange={e => {
+                        <input type="text" value={r.route || ''} onChange={e => {
                           const newRoutes = [...routeData.routes];
                           newRoutes[index].route = e.target.value;
                           setRouteData({...routeData, routes: newRoutes});
                         }} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
                       </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Via (e.g. Kurunegala / Highway)</label>
+                        <div className="flex gap-2">
+                          <input type="text" value={r.via || ''} placeholder="e.g. Kurunegala, Dambulla" onChange={e => {
+                            const newRoutes = [...routeData.routes];
+                            newRoutes[index].via = e.target.value;
+                            setRouteData({...routeData, routes: newRoutes});
+                          }} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                          <button onClick={() => handleFindAlternatives(index)} className="px-3 bg-brand text-white font-semibold rounded-lg hover:bg-brand-dark transition-colors shrink-0">
+                            Find Paths
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {r.alternatives && r.alternatives.length > 0 && (
+                        <div className="md:col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg mb-2 mt-2">
+                          <label className="block text-sm text-blue-800 font-semibold mb-2">Select Preferred Route Path:</label>
+                          <select 
+                            value={r.selectedAlternativeIndex || 0} 
+                            onChange={e => {
+                              const newRoutes = [...routeData.routes];
+                              const idx = parseInt(e.target.value);
+                              newRoutes[index].selectedAlternativeIndex = idx;
+                              newRoutes[index].polylineOverride = newRoutes[index].alternatives[idx].polyline;
+                              setRouteData({...routeData, routes: newRoutes});
+                            }}
+                            className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand bg-white"
+                          >
+                            {r.alternatives.map((alt, i) => (
+                              <option key={i} value={i}>
+                                Path {i + 1} - {(alt.distance / 1000).toFixed(1)} km, {Math.round(alt.duration / 60)} mins {i === 0 ? '(Fastest)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
                       <div>
                         <label className="block text-sm text-gray-600 mb-1">Start Time (e.g., 08:00 AM)</label>
                         <input type="text" value={r.startTime} onChange={e => {
@@ -481,9 +566,9 @@ export default function DriverDashboard() {
                   ))}
                   <div className="flex justify-center">
                     <button 
-                      onClick={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', startTime: '' }]})}
-                      className="text-brand text-sm font-semibold hover:underline"
-                    >
+                    onClick={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', via: '', startTime: '' }]})}
+                    className="w-full py-3 bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-500 font-semibold hover:border-brand hover:text-brand transition-colors"
+                  >  
                       + Add Another Route
                     </button>
                   </div>
@@ -504,7 +589,7 @@ export default function DriverDashboard() {
                     <div key={index} className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
                       <div className="text-center sm:text-left">
                         <p className="text-sm text-gray-500 mb-1">Route</p>
-                        <p className="font-bold text-gray-900">{r.route || 'Not set'}</p>
+                        <p className="font-bold text-gray-900">{r.route || 'Not set'} {r.via ? `(via ${r.via})` : ''}</p>
                       </div>
                       <div className="text-center sm:text-left">
                         <p className="text-sm text-gray-500 mb-1">Start Time</p>

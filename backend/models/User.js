@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   vehicleType: { type: String },
   routes: [{
     route: { type: String },
+    via: { type: String },
     startTime: { type: String },
     polyline: { type: String }
   }],
