@@ -436,6 +436,24 @@ export default function PassengerDashboard() {
                           <Popup>🏁 Your Drop-off: {profile.dropoffLocation.address}</Popup>
                         </Marker>
                       )}
+                      
+                      {/* Driver's Planned Routes */}
+                      {driverProfile?.routes && driverProfile.routes.map((r, i) => {
+                        if (r.polyline) {
+                          const points = JSON.parse(r.polyline).map(p => [p.lat, p.lng]);
+                          return (
+                            <Polyline
+                              key={`route-${i}`}
+                              positions={points}
+                              color="#3B82F6"
+                              weight={4}
+                              opacity={0.6}
+                              dashArray="5, 10"
+                            />
+                          );
+                        }
+                        return null;
+                      })}
                     </MapContainer>
                   ) : (
                     <div className="text-gray-500 animate-pulse font-medium">Connecting to driver's GPS...</div>

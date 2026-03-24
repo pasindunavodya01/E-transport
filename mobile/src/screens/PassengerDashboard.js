@@ -409,6 +409,22 @@ export default function PassengerDashboard({ route, navigation }) {
                       </View>
                     </Marker>
                   )}
+                  
+                  {/* Driver's Planned Routes */}
+                  {driverProfile?.routes && driverProfile.routes.map((r, i) => {
+                    if (r.polyline) {
+                      const points = JSON.parse(r.polyline);
+                      return (
+                        <Polyline
+                          key={`route-${i}`}
+                          coordinates={points}
+                          strokeColor="#3B82F6"
+                          strokeWidth={4}
+                        />
+                      );
+                    }
+                    return null;
+                  })}
                 </MapView>
               ) : (
                 <View style={styles.mapLoading}>
