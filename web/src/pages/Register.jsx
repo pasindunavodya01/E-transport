@@ -52,7 +52,8 @@ export default function Register() {
       localStorage.setItem('userToken', userToken);
       localStorage.setItem('userRole', role);
 
-      if (role === 'driver') navigate('/driver-dashboard');
+      if (role === 'admin') navigate('/admin-dashboard');
+      else if (role === 'driver') navigate('/driver-dashboard');
       else navigate('/passenger-dashboard');
       
     } catch (err) {
@@ -81,9 +82,15 @@ export default function Register() {
             </button>
             <button
               onClick={() => setRole('driver')}
-              className={`flex-1 px-4 py-2 text-sm font-medium border border-gray-200 rounded-e-lg transition-colors ${role === 'driver' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-900 hover:bg-gray-100 hover:text-brand'}`}
+              className={`flex-1 px-4 py-2 text-sm font-medium border border-gray-200 transition-colors ${role === 'driver' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-900 hover:bg-gray-100 hover:text-brand'}`}
             >
               Driver
+            </button>
+            <button
+              onClick={() => setRole('admin')}
+              className={`flex-1 px-4 py-2 text-sm font-medium border border-gray-200 rounded-e-lg transition-colors ${role === 'admin' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-900 hover:bg-gray-100 hover:text-brand'}`}
+            >
+              Admin
             </button>
           </div>
 

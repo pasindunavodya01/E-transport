@@ -37,7 +37,9 @@ export default function Login() {
       localStorage.setItem('userToken', userToken);
       localStorage.setItem('userRole', userData.role);
 
-      if (userData.role === 'driver') {
+      if (userData.role === 'admin') {
+        navigate('/admin-dashboard');
+      } else if (userData.role === 'driver') {
         navigate('/driver-dashboard');
       } else {
         navigate('/passenger-dashboard');

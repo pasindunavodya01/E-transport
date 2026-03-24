@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
   uid: { type: String, required: true, unique: true }, // Firebase UID
-  role: { type: String, enum: ['driver', 'passenger'], required: true },
+  role: { type: String, enum: ['driver', 'passenger', 'admin'], required: true },
   name: { type: String, required: true },
   phoneNumber: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -28,6 +28,16 @@ const userSchema = new mongoose.Schema({
     accountNumber: { type: String },
     branchName: { type: String }
   },
+  systemPayments: [{
+    month: { type: String },           // e.g. "2026-03"
+    amount: { type: Number },
+    imageUrl: { type: String },        // Cloudinary secure URL
+    publicId: { type: String },        // Cloudinary public_id for deletion
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    submittedAt: { type: Date, default: Date.now },
+    reviewedAt: { type: Date },
+    note: { type: String }             // Admin's optional feedback
+  }],
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },

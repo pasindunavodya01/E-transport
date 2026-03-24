@@ -159,4 +159,134 @@ router.put('/review/:passengerId/:paymentId', verifyToken, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────
+// POST /api/payments/admin/upload
+// Driver uploads a system payment screenshot (to Admin)
+// ─────────────────────────────────────────────────────
+router.post('/admin/upload', verifyToken, upload.single('receipt'), async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { month, amount } = req.body; 
+
+    if (!month || !amount || !req.file) {
+      return res.status(400).json({ message: 'month, amount and receipt image are required.' });
+    }
+
+    const driver = await User.findOne({ uid, role: 'driver' });
+    if (!driver) return res.status(403).json({ message: 'Only drivers can submit system payments.' });
+
+    // Check if a payment for this month already exists
+    const existing = driver.systemPayments.find(p => p.month === month);
+    if (existing) {
+      if (existing.publicId) {
+        await cloudinary.uploader.destroy(existing.publicId).catch(() => {});
+      }
+      existing.amount = parseFloat(amount);
+      existing.imageUrl = req.file.path;
+      existing.publicId = req.file.filename;
+      existing.status = 'pending';
+      existing.submittedAt = new Date();
+      existing.reviewedAt = undefined;
+      existing.note = undefined;
+    } else {
+      driver.systemPayments.push({
+        month,
+        amount: parseFloat(amount),
+        imageUrl: req.file.path,
+        publicId: req.file.filename,
+        status: 'pending',
+        submittedAt: new Date(),
+      });
+    }
+
+    await driver.save();
+    res.json({ message: 'Payment submitted successfully.', systemPayments: driver.systemPayments });
+  } catch (error) {
+    console.error('[/admin/upload] error:', error);
+    res.status(500).json({ message: 'Server error', detail: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// GET /api/payments/admin/my-payments
+// Driver fetches their own system payment history
+// ─────────────────────────────────────────────────────
+router.get('/admin/my-payments', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const driver = await User.findOne({ uid, role: 'driver' }).select('systemPayments');
+    if (!driver) return res.status(403).json({ message: 'Driver not found.' });
+
+    const sorted = [...(driver.systemPayments || [])].sort((a, b) => b.month.localeCompare(a.month));
+    res.json(sorted);
+  } catch (error) {
+    console.error('[/admin/my-payments] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// GET /api/payments/admin/all-payments
+// Admin fetches all drivers' payments
+// ─────────────────────────────────────────────────────
+router.get('/admin/all-payments', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const admin = await User.findOne({ uid, role: 'admin' });
+    if (!admin) return res.status(403).json({ message: 'Only admins can view all driver payments.' });
+
+    const drivers = await User.find({ role: 'driver' }).select('name email vehicleNumber systemPayments');
+
+    const result = drivers.map(d => ({
+      _id: d._id,
+      driverId: d._id,
+      name: d.name,
+      email: d.email,
+      vehicleNumber: d.vehicleNumber,
+      payments: [...(d.systemPayments || [])].sort((a, b) => b.month.localeCompare(a.month)),
+    }));
+
+    res.json(result);
+  } catch (error) {
+    console.error('[/admin/all-payments] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// PUT /api/payments/admin/review/:driverId/:paymentId
+// Admin approves or rejects a system payment
+// ─────────────────────────────────────────────────────
+router.put('/admin/review/:driverId/:paymentId', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const admin = await User.findOne({ uid, role: 'admin' });
+    if (!admin) return res.status(403).json({ message: 'Only admins can review payments.' });
+
+    const { driverId, paymentId } = req.params;
+    const { status, note } = req.body; 
+
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'status must be "approved" or "rejected".' });
+    }
+
+    const driver = await User.findById(driverId);
+    if (!driver) return res.status(404).json({ message: 'Driver not found.' });
+
+    const payment = driver.systemPayments.id(paymentId);
+    if (!payment) return res.status(404).json({ message: 'Payment record not found.' });
+
+    payment.status = status;
+    payment.note = note || '';
+    payment.reviewedAt = new Date();
+
+    await driver.save();
+
+    res.json({ message: `Payment ${status}.`, payment });
+  } catch (error) {
+    console.error('[/admin/review] error:', error);
+    res.status(500).json({ message: 'Server error', detail: error.message });
+  }
+});
+
 module.exports = router;

@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import DriverDashboard from './pages/DriverDashboard';
 import PassengerDashboard from './pages/PassengerDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/driver-dashboard" element={<DriverDashboard />} />
           <Route path="/passenger-dashboard" element={<PassengerDashboard />} />
+          <Route path="/admin-dashboard" element={<AdminDashboard />} />
         </Routes>
       </div>
     </Router>

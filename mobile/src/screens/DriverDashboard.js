@@ -7,6 +7,7 @@ import * as Location from 'expo-location';
 import { io } from 'socket.io-client';
 import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
 import { geocodeAddress, fetchRoutePolyline } from '../services/mapServices';
+import * as ImagePicker from 'expo-image-picker';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
 
@@ -37,6 +38,12 @@ export default function DriverDashboard({ route, navigation }) {
     accountNumber: initialUser?.bankDetails?.accountNumber || '',
     branchName: initialUser?.bankDetails?.branchName || ''
   });
+
+  const [systemPayments, setSystemPayments] = useState([]);
+  const [sysPayMonth, setSysPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [sysPayAmount, setSysPayAmount] = useState('');
+  const [sysPayImage, setSysPayImage] = useState(null); // { uri, type, name }
+  const [sysPayUploading, setSysPayUploading] = useState(false);
 
   useEffect(() => {
     fetchPassengers();
@@ -132,13 +139,20 @@ export default function DriverDashboard({ route, navigation }) {
 
   const fetchAllPayments = async () => {
     try {
-      const response = await axios.get(
+      const paymentsRes = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/all-payments`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setAllPayments(response.data || []);
+      setAllPayments(paymentsRes.data || []);
+
+      // Fetch driver's own system payments to admin
+      const sysRes = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/admin/my-payments`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSystemPayments(sysRes.data || []);
     } catch (err) {
-      console.error('Failed to fetch payments:', err);
+      console.error('Error fetching payments:', err);
     }
   };
 
@@ -166,6 +180,56 @@ export default function DriverDashboard({ route, navigation }) {
     } catch (error) {
       console.error('Failed to update bank details:', error);
       Alert.alert('Error', 'Failed to update bank details');
+    }
+  };
+
+  const pickSystemPaymentImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setSysPayImage({
+        uri: asset.uri,
+        type: 'image/jpeg',
+        name: `sys_payment_${Date.now()}.jpg`,
+      });
+    }
+  };
+
+  const uploadSystemPayment = async () => {
+    if (!sysPayMonth || !sysPayAmount || !sysPayImage) {
+      Alert.alert('Missing Fields', 'Please fill in month, amount, and upload a receipt.');
+      return;
+    }
+    setSysPayUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('month', sysPayMonth);
+      formData.append('amount', sysPayAmount);
+      formData.append('receipt', sysPayImage);
+
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/admin/upload`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+      setSystemPayments(response.data.systemPayments || []);
+      setSysPayAmount('');
+      setSysPayImage(null);
+      Alert.alert('Success', 'System payment successfully uploaded!');
+    } catch (error) {
+      console.error('System payment upload failed:', error);
+      Alert.alert('Error', 'Failed to upload payment receipt.');
+    } finally {
+      setSysPayUploading(false);
     }
   };
 
@@ -652,6 +716,83 @@ export default function DriverDashboard({ route, navigation }) {
         )
       ))}
     </View>
+
+    {/* ── System Fee Payments (to Admin) ── */}
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>🏦 System Fee Payments</Text>
+      <Text style={{fontSize: 12, color: '#888', marginBottom: 12}}>Upload your monthly system fee payment receipt for the admin.</Text>
+
+      <Text style={styles.inputLabel}>Payment Month (YYYY-MM)</Text>
+      <TextInput
+        style={styles.input}
+        value={sysPayMonth}
+        onChangeText={setSysPayMonth}
+        placeholder="2026-03"
+        placeholderTextColor="#aaa"
+      />
+
+      <Text style={[styles.inputLabel, {marginTop: 10}]}>Amount (LKR)</Text>
+      <TextInput
+        style={styles.input}
+        value={sysPayAmount}
+        onChangeText={setSysPayAmount}
+        placeholder="e.g. 5000"
+        placeholderTextColor="#aaa"
+        keyboardType="numeric"
+      />
+
+      <Text style={[styles.inputLabel, {marginTop: 10}]}>Receipt Photo / Screenshot</Text>
+      <TouchableOpacity 
+        style={{backgroundColor: '#e3f2fd', padding: 12, borderRadius: 8, alignItems: 'center', borderColor: '#bbdefb', borderWidth: 1, marginBottom: 15}}
+        onPress={pickSystemPaymentImage}
+      >
+        <Text style={{color: '#1565c0', fontWeight: 'bold'}}>
+          {sysPayImage ? '📸 Change Photo' : '📸 Select Photo'}
+        </Text>
+      </TouchableOpacity>
+
+      {sysPayImage && (
+        <Image source={{uri: sysPayImage.uri}} style={{width: '100%', height: 200, borderRadius: 10, marginBottom: 15}} resizeMode="cover" />
+      )}
+
+      <TouchableOpacity 
+        style={[styles.saveRouteBtn, (sysPayUploading || !sysPayAmount || !sysPayImage) && {opacity: 0.6}]}
+        onPress={uploadSystemPayment}
+        disabled={sysPayUploading || !sysPayAmount || !sysPayImage}
+      >
+        <Text style={styles.saveRouteBtnText}>
+          {sysPayUploading ? 'Uploading...' : '📤 Submit System Payment'}
+        </Text>
+      </TouchableOpacity>
+
+      {systemPayments.length > 0 && (
+        <View style={{marginTop: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#eee'}}>
+          <Text style={styles.inputLabel}>My Submission History</Text>
+          {systemPayments.map(p => (
+            <View key={p._id} style={{backgroundColor: '#f9f9f9', padding: 12, borderRadius: 8, marginBottom: 10, borderColor: '#eee', borderWidth: 1}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6}}>
+                <Text style={{fontWeight: 'bold', color: '#333'}}>{p.month}</Text>
+                <Text style={{fontWeight: 'bold', color: Colors.light.primary}}>LKR {p.amount}</Text>
+              </View>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                <Text style={{fontSize: 11, color: '#666'}}>
+                  {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}
+                </Text>
+                <Text style={{
+                  fontSize: 10, fontWeight: 'bold', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, textTransform: 'uppercase',
+                  backgroundColor: p.status === 'approved' ? '#d4edda' : p.status === 'rejected' ? '#f8d7da' : '#fff3cd',
+                  color: p.status === 'approved' ? '#155724' : p.status === 'rejected' ? '#721c24' : '#856404'
+                }}>
+                  {p.status}
+                </Text>
+              </View>
+              {p.note ? <Text style={{fontSize: 11, color: '#666', fontStyle: 'italic', marginTop: 6}}>Admin Note: {p.note}</Text> : null}
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+
           </>
         }
       />

@@ -30,6 +30,12 @@ export default function DriverDashboard() {
   const [reviewNotes, setReviewNotes] = useState({}); // { paymentId: noteText }
   const [isEditingBank, setIsEditingBank] = useState(false);
   const [bankDetails, setBankDetails] = useState({ bankName: '', accountName: '', accountNumber: '', branchName: '' });
+  const [systemPayments, setSystemPayments] = useState([]);
+  const [sysPayMonth, setSysPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [sysPayAmount, setSysPayAmount] = useState('');
+  const [sysPayFile, setSysPayFile] = useState(null);
+  const [sysPayPreview, setSysPayPreview] = useState(null);
+  const [sysPayUploading, setSysPayUploading] = useState(false);
   
   const navigate = useNavigate();
 
@@ -65,6 +71,14 @@ export default function DriverDashboard() {
         if (data.currentLocation) {
           setCurrentLocation(data.currentLocation);
         }
+        // Fetch driver's own system payments
+        try {
+          const sysRes = await axios.get(
+            `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/admin/my-payments`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          setSystemPayments(sysRes.data || []);
+        } catch (_) {}
         // Rehydrate saved polylines from routes
         if (data.routes) {
           const polys = data.routes
@@ -254,6 +268,35 @@ export default function DriverDashboard() {
     } catch (error) {
       console.error('Error updating bank details', error);
       alert('Failed to update bank details');
+    }
+  };
+
+  const uploadSystemPayment = async () => {
+    if (!sysPayMonth || !sysPayAmount || !sysPayFile) {
+      alert('Please fill in month, amount and select a receipt image.');
+      return;
+    }
+    setSysPayUploading(true);
+    try {
+      const token = localStorage.getItem('userToken');
+      const formData = new FormData();
+      formData.append('month', sysPayMonth);
+      formData.append('amount', sysPayAmount);
+      formData.append('receipt', sysPayFile);
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL.replace('/api', '')}/api/payments/admin/upload`,
+        formData,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+      );
+      setSystemPayments(res.data.systemPayments || []);
+      setSysPayAmount('');
+      setSysPayFile(null);
+      setSysPayPreview(null);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload payment. Please try again.');
+    } finally {
+      setSysPayUploading(false);
     }
   };
 
@@ -736,6 +779,96 @@ export default function DriverDashboard() {
             ))}
           </div>
         </div>
+
+          {/* ── System Fee Payments (to Admin) ── */}
+          <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+              🏦 System Fee Payments
+            </h3>
+            <p className="text-sm text-gray-500 mb-5">Upload your monthly system fee payment receipt. The admin will review and approve it.</p>
+
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Month</label>
+                  <input
+                    type="month"
+                    value={sysPayMonth}
+                    onChange={e => setSysPayMonth(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand bg-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (LKR)</label>
+                  <input
+                    type="number"
+                    value={sysPayAmount}
+                    onChange={e => setSysPayAmount(e.target.value)}
+                    placeholder="e.g. 5000"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand bg-white text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Receipt Photo / Screenshot</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    const f = e.target.files[0];
+                    setSysPayFile(f || null);
+                    setSysPayPreview(f ? URL.createObjectURL(f) : null);
+                  }}
+                  className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand file:text-white hover:file:bg-brand-dark cursor-pointer"
+                />
+                {sysPayPreview && (
+                  <img src={sysPayPreview} alt="Preview" className="mt-3 h-40 object-cover rounded-lg border border-gray-200 shadow-sm" />
+                )}
+              </div>
+
+              <button
+                onClick={uploadSystemPayment}
+                disabled={sysPayUploading}
+                className="w-full bg-brand text-white py-3 rounded-xl font-bold hover:bg-brand-dark transition-colors disabled:opacity-60"
+              >
+                {sysPayUploading ? 'Uploading...' : '📤 Submit System Payment'}
+              </button>
+            </div>
+
+            {/* Payment history */}
+            {systemPayments.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">My Submission History</h4>
+                <div className="space-y-3">
+                  {systemPayments.map(p => (
+                    <div key={p._id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      {p.imageUrl && (
+                        <a href={p.imageUrl} target="_blank" rel="noreferrer">
+                          <img src={p.imageUrl} alt="receipt" className="w-20 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity flex-shrink-0" />
+                        </a>
+                      )}
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-800">{p.month} &nbsp;•&nbsp; LKR {p.amount?.toLocaleString()}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Submitted: {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}
+                          {p.reviewedAt && ` • Reviewed: ${new Date(p.reviewedAt).toLocaleDateString()}`}
+                        </p>
+                        {p.note && <p className="text-xs text-gray-500 italic mt-1">Admin Note: {p.note}</p>}
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide flex-shrink-0 ${
+                        p.status === 'approved' ? 'bg-green-100 text-green-700' :
+                        p.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
       </main>
     </div>
