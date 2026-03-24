@@ -22,6 +22,12 @@ const userSchema = new mongoose.Schema({
     lng: { type: Number },
     timestamp: { type: Date }
   },
+  bankDetails: {
+    bankName: { type: String },
+    accountName: { type: String },
+    accountNumber: { type: String },
+    branchName: { type: String }
+  },
   
   // Passenger specific fields
   chosenVehicleNumber: { type: String },

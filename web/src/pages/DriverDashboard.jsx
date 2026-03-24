@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle, Navigation } from 'lucide-react';
+import { LogOut, Car, Hash, User, Phone, Mail, MapPin, Calendar, AlertCircle, Navigation, CreditCard } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
@@ -28,6 +28,8 @@ export default function DriverDashboard() {
   const [routePolylines, setRoutePolylines] = useState([]); // array of {points:[{lat,lng}]}
   const [allPayments, setAllPayments] = useState([]); // [{passengerId, name, email, payments:[...]}]
   const [reviewNotes, setReviewNotes] = useState({}); // { paymentId: noteText }
+  const [isEditingBank, setIsEditingBank] = useState(false);
+  const [bankDetails, setBankDetails] = useState({ bankName: '', accountName: '', accountNumber: '', branchName: '' });
   
   const navigate = useNavigate();
 
@@ -52,6 +54,12 @@ export default function DriverDashboard() {
         setRouteData({
           routes: data.routes || [],
           totalSeats: data.totalSeats || ''
+        });
+        setBankDetails({
+          bankName: data.bankDetails?.bankName || '',
+          accountName: data.bankDetails?.accountName || '',
+          accountNumber: data.bankDetails?.accountNumber || '',
+          branchName: data.bankDetails?.branchName || ''
         });
         setIsTripActive(data.isTripActive || false);
         if (data.currentLocation) {
@@ -230,6 +238,22 @@ export default function DriverDashboard() {
     } catch (err) {
       console.error(err);
       alert('Failed to update payment status.');
+    }
+  };
+
+  const handleSaveBankDetails = async () => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-bank-details`, {
+        bankDetails
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProfile(data);
+      setIsEditingBank(false);
+    } catch (error) {
+      console.error('Error updating bank details', error);
+      alert('Failed to update bank details');
     }
   };
 
@@ -427,6 +451,75 @@ export default function DriverDashboard() {
                       <p className="font-bold text-gray-900 text-xl">{profile?.totalSeats || 'Not set'}</p>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bank Details Section */}
+            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-brand" /> Bank Details
+                </h3>
+                {!isEditingBank && (
+                  <button onClick={() => setIsEditingBank(true)} className="text-brand text-sm font-semibold hover:underline">
+                    Edit Bank Details
+                  </button>
+                )}
+              </div>
+              
+              {isEditingBank ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Bank Name</label>
+                      <input type="text" value={bankDetails.bankName} onChange={e => setBankDetails({...bankDetails, bankName: e.target.value})} placeholder="e.g. Commercial Bank" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Account Name</label>
+                      <input type="text" value={bankDetails.accountName} onChange={e => setBankDetails({...bankDetails, accountName: e.target.value})} placeholder="e.g. John Doe" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Account Number</label>
+                      <input type="text" value={bankDetails.accountNumber} onChange={e => setBankDetails({...bankDetails, accountNumber: e.target.value})} placeholder="e.g. 1234567890" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Branch Name</label>
+                      <input type="text" value={bankDetails.branchName} onChange={e => setBankDetails({...bankDetails, branchName: e.target.value})} placeholder="e.g. Colombo 03" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end mt-4">
+                    <button onClick={() => {
+                        setIsEditingBank(false);
+                        setBankDetails({
+                          bankName: profile.bankDetails?.bankName || '',
+                          accountName: profile.bankDetails?.accountName || '',
+                          accountNumber: profile.bankDetails?.accountNumber || '',
+                          branchName: profile.bankDetails?.branchName || ''
+                        });
+                      }} 
+                      className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    >Cancel</button>
+                    <button onClick={handleSaveBankDetails} className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-dark transition-colors">Save Details</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {profile?.bankDetails?.accountNumber ? (
+                    <div className="bg-gray-50 p-4 rounded-lg flex items-start gap-3 border border-gray-100">
+                      <div className="bg-white p-2 rounded-lg shadow-sm">
+                        <CreditCard className="w-6 h-6 text-brand" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-900">{profile.bankDetails.bankName || 'Unknown Bank'}</div>
+                        <div className="text-gray-800 font-mono mt-1 tracking-wider">{profile.bankDetails.accountNumber}</div>
+                        <div className="text-gray-500 mt-2 text-sm">Account Name: <span className="text-gray-700 font-medium">{profile.bankDetails.accountName || '-'}</span></div>
+                        <div className="text-gray-500 mt-1 text-sm">Branch: <span className="text-gray-700 font-medium">{profile.bankDetails.branchName || '-'}</span></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center text-gray-500 italic">No bank details provided. Add them so passengers can transfer payments.</div>
+                  )}
                 </div>
               )}
             </div>

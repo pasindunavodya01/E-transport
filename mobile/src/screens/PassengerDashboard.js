@@ -616,6 +616,23 @@ export default function PassengerDashboard({ route, navigation }) {
           )}
         </View>
 
+        {/* ── Driver Bank Details ── */}
+        {driverProfile && (
+          <View style={[styles.card, {marginTop: 16}]}>
+            <Text style={styles.cardTitle}>💳 Driver's Bank Details</Text>
+            {driverProfile.bankDetails?.accountNumber ? (
+              <View style={{backgroundColor: '#e3f2fd', padding: 15, borderRadius: 10, borderColor: '#bbdefb', borderWidth: 1}}>
+                <Text style={{fontWeight: 'bold', fontSize: 16, color: '#1565c0'}}>{driverProfile.bankDetails.bankName || 'Unknown Bank'}</Text>
+                <Text style={{fontSize: 16, color: '#333', marginTop: 4, letterSpacing: 1, fontWeight: 'bold'}}>{driverProfile.bankDetails.accountNumber}</Text>
+                <Text style={{fontSize: 14, color: '#555', marginTop: 8}}>Acc Name: <Text style={{color: '#333', fontWeight: 'bold'}}>{driverProfile.bankDetails.accountName || '-'}</Text></Text>
+                <Text style={{fontSize: 14, color: '#555', marginTop: 2}}>Branch: <Text style={{color: '#333', fontWeight: 'bold'}}>{driverProfile.bankDetails.branchName || '-'}</Text></Text>
+              </View>
+            ) : (
+              <Text style={{color: '#999', fontStyle: 'italic', textAlign: 'center', padding: 10}}>Your driver has not provided bank details yet. Contact them for payment instructions.</Text>
+            )}
+          </View>
+        )}
+
         {/* ── Monthly Payments ── */}
         <View style={[styles.card, {marginTop: 16}]}>
           <Text style={styles.cardTitle}>💳 Monthly Payments</Text>

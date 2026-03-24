@@ -256,6 +256,32 @@ router.put('/update-extra-bookings', verifyToken, async (req, res) => {
   }
 });
 
+// Update Driver Bank Details
+router.put('/update-bank-details', verifyToken, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { bankDetails } = req.body;
+    
+    const driver = await User.findOne({ uid, role: 'driver' });
+    if (!driver) {
+      return res.status(403).json({ message: 'Only drivers can update bank details' });
+    }
+
+    driver.bankDetails = {
+      bankName: bankDetails?.bankName || '',
+      accountName: bankDetails?.accountName || '',
+      accountNumber: bankDetails?.accountNumber || '',
+      branchName: bankDetails?.branchName || ''
+    };
+
+    await driver.save();
+    res.json(driver);
+  } catch (error) {
+    console.error('[/update-bank-details] error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Start Trip
 router.put('/start-trip', verifyToken, async (req, res) => {
   try {

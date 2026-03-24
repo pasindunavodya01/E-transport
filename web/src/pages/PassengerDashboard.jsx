@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map } from 'lucide-react';
+import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map, CreditCard } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
@@ -690,6 +690,32 @@ export default function PassengerDashboard() {
             </div>
           </div>
         </div>
+
+        {/* ── Driver Bank Details ── */}
+        {driverProfile && (
+          <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-brand" /> Driver's Bank Details
+            </h3>
+            {driverProfile.bankDetails?.accountNumber ? (
+              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex items-start gap-4">
+                <div className="bg-white p-2 rounded-lg shadow-sm">
+                  <CreditCard className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <div className="font-bold text-gray-900 text-base">{driverProfile.bankDetails.bankName || 'Unknown Bank'}</div>
+                  <div className="text-gray-800 font-mono mt-1 text-lg tracking-wider">{driverProfile.bankDetails.accountNumber}</div>
+                  <div className="mt-2 text-sm text-gray-600">Account Name: <span className="font-semibold text-gray-800">{driverProfile.bankDetails.accountName || '-'}</span></div>
+                  <div className="mt-0.5 text-sm text-gray-600">Branch: <span className="font-semibold text-gray-800">{driverProfile.bankDetails.branchName || '-'}</span></div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-gray-500 italic text-sm text-center">
+                Your driver has not provided bank details yet. Contact them for payment instructions.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Monthly Payments ── */}
         <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

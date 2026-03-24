@@ -30,6 +30,13 @@ export default function DriverDashboard({ route, navigation }) {
   );
   const [allPayments, setAllPayments] = useState([]);
   const [reviewNotes, setReviewNotes] = useState({});
+  const [isEditingBank, setIsEditingBank] = useState(false);
+  const [bankDetails, setBankDetails] = useState({
+    bankName: initialUser?.bankDetails?.bankName || '',
+    accountName: initialUser?.bankDetails?.accountName || '',
+    accountNumber: initialUser?.bankDetails?.accountNumber || '',
+    branchName: initialUser?.bankDetails?.branchName || ''
+  });
 
   useEffect(() => {
     fetchPassengers();
@@ -145,6 +152,20 @@ export default function DriverDashboard({ route, navigation }) {
       await fetchAllPayments();
     } catch (err) {
       Alert.alert('Error', 'Failed to update payment status');
+    }
+  };
+
+  const handleSaveBankDetails = async () => {
+    try {
+      const response = await axios.put(`${API_URL}/update-bank-details`, { bankDetails }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUser(response.data);
+      setIsEditingBank(false);
+      Alert.alert('Success', 'Bank details updated successfully');
+    } catch (error) {
+      console.error('Failed to update bank details:', error);
+      Alert.alert('Error', 'Failed to update bank details');
     }
   };
 
@@ -450,6 +471,56 @@ export default function DriverDashboard({ route, navigation }) {
               ) : (
                 <View style={styles.mapInactive}>
                   <Text style={styles.mapInactiveText}>Trip is currently inactive.</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Bank Details section */}
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardTitleNoMargin}>💳 Bank Details</Text>
+                {!isEditingBank && (
+                  <TouchableOpacity onPress={() => setIsEditingBank(true)}>
+                    <Text style={styles.editText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {isEditingBank ? (
+                <View style={styles.editSection}>
+                  <Text style={styles.inputLabel}>Bank Name</Text>
+                  <TextInput style={styles.input} value={bankDetails.bankName} onChangeText={t => setBankDetails({...bankDetails, bankName: t})} placeholder="e.g. Commercial Bank" />
+                  
+                  <Text style={styles.inputLabel}>Account Name</Text>
+                  <TextInput style={styles.input} value={bankDetails.accountName} onChangeText={t => setBankDetails({...bankDetails, accountName: t})} placeholder="e.g. John Doe" />
+                  
+                  <Text style={styles.inputLabel}>Account Number</Text>
+                  <TextInput style={styles.input} value={bankDetails.accountNumber} onChangeText={t => setBankDetails({...bankDetails, accountNumber: t})} placeholder="e.g. 1234567890" keyboardType="numeric" />
+                  
+                  <Text style={styles.inputLabel}>Branch Name</Text>
+                  <TextInput style={styles.input} value={bankDetails.branchName} onChangeText={t => setBankDetails({...bankDetails, branchName: t})} placeholder="e.g. Colombo 03" />
+
+                  <View style={styles.btnRow}>
+                    <TouchableOpacity style={[styles.saveRouteBtn, {backgroundColor: '#ccc'}]} onPress={() => setIsEditingBank(false)}>
+                      <Text style={styles.saveRouteBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.saveRouteBtn} onPress={handleSaveBankDetails}>
+                      <Text style={styles.saveRouteBtnText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.viewSection}>
+                  {user?.bankDetails?.accountNumber ? (
+                    <View style={{backgroundColor: '#f8f9fa', padding: 15, borderRadius: 10, borderColor: '#eee', borderWidth: 1}}>
+                      <Text style={{fontWeight: 'bold', fontSize: 16, color: '#333'}}>{user.bankDetails.bankName || 'Unknown Bank'}</Text>
+                      <Text style={{fontSize: 16, color: '#555', marginTop: 4, letterSpacing: 1}}>{user.bankDetails.accountNumber}</Text>
+                      <Text style={{fontSize: 14, color: '#666', marginTop: 8}}>Acc Name: {user.bankDetails.accountName || '-'}</Text>
+                      <Text style={{fontSize: 14, color: '#666', marginTop: 2}}>Branch: {user.bankDetails.branchName || '-'}</Text>
+                    </View>
+                  ) : (
+                    <Text style={{color: '#999', fontStyle: 'italic', textAlign: 'center', padding: 10}}>No bank details provided. Add them to receive payments.</Text>
+                  )}
                 </View>
               )}
             </View>
