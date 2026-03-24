@@ -47,7 +47,7 @@ export default function DriverDashboard() {
   const [passengers, setPassengers] = useState([]);
   const [loadingPassengers, setLoadingPassengers] = useState(true);
   const [isEditingRoute, setIsEditingRoute] = useState(false);
-  const [routeData, setRouteData] = useState({ routes: [], totalSeats: '' });
+  const [routeData, setRouteData] = useState({ routes: [], totalSeats: '', pricePerKm: '' });
   const [isTripActive, setIsTripActive] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const currentLocationRef = React.useRef(null);
@@ -85,7 +85,8 @@ export default function DriverDashboard() {
         setProfile(data);
         setRouteData({
           routes: data.routes || [],
-          totalSeats: data.totalSeats || ''
+          totalSeats: data.totalSeats || '',
+          pricePerKm: data.pricePerKm || ''
         });
         setBankDetails({
           bankName: data.bankDetails?.bankName || '',
@@ -238,7 +239,8 @@ export default function DriverDashboard() {
 
       const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-route`, {
         routes: enrichedRoutes,
-        totalSeats: parseInt(routeData.totalSeats) || 0
+        totalSeats: parseInt(routeData.totalSeats) || 0,
+        pricePerKm: parseFloat(routeData.pricePerKm) || 0
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -576,6 +578,9 @@ export default function DriverDashboard() {
                     <div className="w-full md:w-1/3">
                       <label className="block text-sm text-gray-600 mb-1">Total Seats</label>
                       <input type="number" value={routeData.totalSeats} onChange={e => setRouteData({...routeData, totalSeats: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
+
+                      <label className="block text-sm text-gray-600 mb-1 mt-4">Price per Km (Rs.)</label>
+                      <input type="number" value={routeData.pricePerKm} onChange={e => setRouteData({...routeData, pricePerKm: e.target.value})} placeholder="e.g. 50" className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"/>
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end mt-4">
@@ -599,10 +604,14 @@ export default function DriverDashboard() {
                   )) : (
                     <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-center text-gray-500 italic">No routes set</div>
                   )}
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <div className="inline-block p-4 bg-brand-light rounded-lg border border-brand/20">
+                  <div className="mt-4 pt-4 border-t border-gray-100 flex gap-4">
+                    <div className="flex-1 p-4 bg-brand-light rounded-lg border border-brand/20">
                       <p className="text-sm text-brand-dark mb-1 font-semibold">Total Seats</p>
                       <p className="font-bold text-gray-900 text-xl">{profile?.totalSeats || 'Not set'}</p>
+                    </div>
+                    <div className="flex-1 p-4 bg-green-50 rounded-lg border border-green-200">
+                      <p className="text-sm text-green-800 mb-1 font-semibold">Price per Km</p>
+                      <p className="font-bold text-green-900 text-xl">{profile?.pricePerKm ? `Rs. ${profile.pricePerKm}` : 'Not set'}</p>
                     </div>
                   </div>
                 </div>
@@ -808,6 +817,30 @@ export default function DriverDashboard() {
                         </div>
                       </div>
                     )}
+
+                    {passenger.extraBookings && passenger.extraBookings.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Extra Friend Bookings</p>
+                        <div className="space-y-2">
+                          {passenger.extraBookings.sort((a,b) => a.date.localeCompare(b.date)).map((eb, idx) => (
+                            <div key={idx} className="bg-green-50 p-2 rounded border border-green-100 relative">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="font-bold text-green-800 text-sm">{typeof eb.date === 'string' ? new Date(eb.date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : ''} - {eb.period}</span>
+                                <span className="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold">{eb.seats} Seat(s)</span>
+                              </div>
+                              {eb.pickupLocation && (
+                                <div className="text-xs text-gray-700 mt-1 border-l-2 border-green-300 pl-2">
+                                  <span className="font-semibold block text-gray-500">From: <span className="text-gray-800 font-normal">{eb.pickupLocation.address}</span></span>
+                                  <span className="font-semibold block text-gray-500 mt-0.5">To: <span className="text-gray-800 font-normal">{eb.dropoffLocation?.address}</span></span>
+                                  {eb.price && <span className="font-bold text-green-700 block mt-1">Total: Rs. {Math.round(eb.price)} ({eb.distanceKm?.toFixed(1)} km)</span>}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               );

@@ -5,7 +5,7 @@ import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
 import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
-import { geocodeAddress } from '../services/mapServices';
+import { geocodeAddress, fetchRouteAlternatives } from '../services/mapServices';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function PassengerDashboard({ route, navigation }) {
@@ -28,6 +28,11 @@ export default function PassengerDashboard({ route, navigation }) {
   const [bookingPeriod, setBookingPeriod] = useState('Morning');
   const [bookSeats, setBookSeats] = useState('1');
   const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
+  const [extraPickup, setExtraPickup] = useState('');
+  const [extraDropoff, setExtraDropoff] = useState('');
+  const [extraDistance, setExtraDistance] = useState(null);
+  const [extraPrice, setExtraPrice] = useState(null);
+  const [calculatingPrice, setCalculatingPrice] = useState(false);
 
   const [driverLocation, setDriverLocation] = useState(null);
   const [isDriverActive, setIsDriverActive] = useState(false);
@@ -251,16 +256,63 @@ export default function PassengerDashboard({ route, navigation }) {
     }
   };
 
+  const calculateExtraPrice = async () => {
+    if (!extraPickup || !extraDropoff) {
+      Alert.alert('Missing Info', 'Please enter both pickup and drop-off locations.');
+      return;
+    }
+    setCalculatingPrice(true);
+    try {
+      const [startGeo, endGeo] = await Promise.all([
+        geocodeAddress(extraPickup),
+        geocodeAddress(extraDropoff)
+      ]);
+      if (startGeo && endGeo) {
+        const alts = await fetchRouteAlternatives(startGeo, endGeo);
+        if (alts && alts.length > 0) {
+          const distKm = alts[0].distance / 1000;
+          setExtraDistance(distKm);
+          setExtraPrice(distKm * (availableSeatsCheck?.pricePerKm || 0));
+        } else {
+          Alert.alert('Error', 'Could not calculate distance between these locations.');
+        }
+      } else {
+        Alert.alert('Error', 'Could not find locations. Try adding more details (e.g., City).');
+      }
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'Error calculating price.');
+    } finally {
+      setCalculatingPrice(false);
+    }
+  };
+
   const confirmExtraBooking = async () => {
     if (!availableSeatsCheck) return;
     const seats = parseInt(bookSeats, 10);
     if (isNaN(seats) || seats < 1 || seats > availableSeatsCheck.availableSeats) { Alert.alert('Error', 'Invalid or unavailable seat count'); return; }
+    if (!extraPickup || !extraDropoff || extraPrice === null) {
+      Alert.alert('Missing Info', 'Please enter locations and calculate the price first.');
+      return;
+    }
     try {
-      const newBookings = [...extraBookings, { date: availableSeatsCheck.dateStr, period: availableSeatsCheck.period, seats }];
+      const newBookings = [...extraBookings, { 
+        date: availableSeatsCheck.dateStr, 
+        period: availableSeatsCheck.period, 
+        seats,
+        pickupLocation: { address: extraPickup },
+        dropoffLocation: { address: extraDropoff },
+        distanceKm: extraDistance,
+        price: extraPrice
+      }];
       const { data } = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
       setExtraBookings(data.extraBookings || []);
       setAvailableSeatsCheck(null);
       setBookSeats('1');
+      setExtraPickup('');
+      setExtraDropoff('');
+      setExtraPrice(null);
+      setExtraDistance(null);
       Alert.alert('Success', 'Successfully booked extra seats!');
     } catch (err) {
       console.error(err); Alert.alert('Error', 'Could not complete booking');
@@ -599,16 +651,67 @@ export default function PassengerDashboard({ route, navigation }) {
                   <View style={styles.availableBox}>
                     <Text style={styles.availableSeatsTitle}>🔥 {availableSeatsCheck.availableSeats} Seats Available!</Text>
                     <View style={styles.bookActionRow}>
+                      <Text style={{fontWeight: 'bold', marginRight: 10}}>Seats needed:</Text>
                       <TextInput 
-                        style={styles.seatCountInput} 
+                        style={[styles.seatCountInput, {width: 60}]} 
                         keyboardType="numeric" 
                         value={bookSeats}
-                        onChangeText={setBookSeats}
+                        onChangeText={handleSeatCountChange}
                       />
-                      <TouchableOpacity style={styles.bookConfirmBtn} onPress={confirmExtraBooking}>
-                        <Text style={styles.bookConfirmBtnText}>Book Now!</Text>
-                      </TouchableOpacity>
                     </View>
+                    
+                    {parseInt(bookSeats) > 1 && (
+                      <TouchableOpacity 
+                        style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 10, borderRadius: 8, marginTop: 10, borderWidth: 1, borderColor: '#e5e7eb', elevation: 1}}
+                        onPress={handleSameForAllChange}
+                      >
+                        <View style={{width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#2563eb', marginRight: 10, backgroundColor: sameForAll ? '#2563eb' : 'transparent', justifyContent: 'center', alignItems: 'center'}}>
+                          {sameForAll && <MaterialIcons name="check" size={14} color="#fff" />}
+                        </View>
+                        <Text style={{fontSize: 13, color: '#374151', flex: 1, fontWeight: '500'}}>Use same Pickup & Drop-off locations for all passengers</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <View style={{marginTop: 15, maxHeight: 300}}>
+                      <ScrollView nestedScrollEnabled={true}>
+                        {extraLocations.map((loc, idx) => (
+                          <View key={idx} style={{padding: 10, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 8, marginBottom: 10}}>
+                            {!sameForAll && <Text style={{fontWeight: 'bold', color: '#15803d', marginBottom: 5}}>Passenger {idx + 1}</Text>}
+                            <Text style={styles.inputLabel}>Pickup Location</Text>
+                            <TextInput style={styles.input} value={loc.pickup} onChangeText={t => {
+                               const newLocs = [...extraLocations]; newLocs[idx].pickup = t; setExtraLocations(newLocs); setExtraPrice(null);
+                            }} placeholder="e.g. Dematagoda Station" />
+                            
+                            <Text style={styles.inputLabel}>Drop-off Location</Text>
+                            <TextInput style={styles.input} value={loc.dropoff} onChangeText={t => {
+                               const newLocs = [...extraLocations]; newLocs[idx].dropoff = t; setExtraLocations(newLocs); setExtraPrice(null);
+                            }} placeholder="e.g. Kandy Town" />
+                          </View>
+                        ))}
+                      </ScrollView>
+                    </View>
+
+                    {extraPrice === null ? (
+                      <TouchableOpacity style={[styles.bookConfirmBtn, {backgroundColor: '#2563eb', marginTop: 10, width: '100%', alignItems: 'center'}]} onPress={calculateExtraPrice} disabled={calculatingPrice}>
+                        <Text style={styles.bookConfirmBtnText}>{calculatingPrice ? 'Calculating...' : 'Calculate Price & Distance'}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={{marginTop: 10, width: '100%'}}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#fff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#dcfce7', marginBottom: 10}}>
+                          <View>
+                            <Text style={{fontSize: 10, color: '#6b7280', fontWeight: 'bold'}}>TOTAL DISTANCE</Text>
+                            <Text style={{fontWeight: 'bold', fontSize: 16}}>{extraDistance.toFixed(1)} km</Text>
+                          </View>
+                          <View style={{alignItems: 'flex-end'}}>
+                            <Text style={{fontSize: 10, color: '#6b7280', fontWeight: 'bold'}}>TOTAL PRICE (@ Rs.{availableSeatsCheck.pricePerKm}/km)</Text>
+                            <Text style={{fontWeight: 'bold', fontSize: 18, color: '#15803d'}}>Rs. {Math.round(extraPrice)}</Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity style={[styles.bookConfirmBtn, {marginTop: 5, width: '100%', alignItems: 'center'}]} onPress={confirmExtraBooking}>
+                          <Text style={styles.bookConfirmBtnText}>Confirm & Book Now!</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 ) : (
                   <View style={styles.unavailableBox}>
@@ -628,6 +731,13 @@ export default function PassengerDashboard({ route, navigation }) {
                   <View>
                     <Text style={styles.recordedAbsenceText}>{typeof booking.date === 'string' ? new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''} - <Text style={{color: '#28a745'}}>{booking.seats} Seat(s)</Text></Text>
                     <Text style={[styles.recordedAbsencePeriod, {color: '#28a745'}]}>{booking.period} Route</Text>
+                    {booking.pickupLocation && (
+                      <View style={{marginTop: 5, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: '#dcfce7'}}>
+                        <Text style={{fontSize: 12, color: '#4b5563'}}><Text style={{fontWeight: 'bold'}}>From:</Text> {booking.pickupLocation.address}</Text>
+                        <Text style={{fontSize: 12, color: '#4b5563'}}><Text style={{fontWeight: 'bold'}}>To:</Text> {booking.dropoffLocation?.address}</Text>
+                        {booking.price && <Text style={{fontSize: 12, color: '#15803d', fontWeight: 'bold', marginTop: 2}}>Total: Rs. {booking.price} ({booking.distanceKm?.toFixed(1)} km)</Text>}
+                      </View>
+                    )}
                   </View>
                   <TouchableOpacity onPress={() => cancelExtraBooking(index)}>
                     <Text style={styles.removeText}>Cancel</Text>

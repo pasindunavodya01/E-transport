@@ -87,11 +87,13 @@ router.get('/passengers', verifyToken, async (req, res) => {
 router.put('/update-route', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { routes, totalSeats } = req.body;
+    const { routes, totalSeats, pricePerKm } = req.body;
+    let updateData = { routes, totalSeats };
+    if (pricePerKm !== undefined) updateData.pricePerKm = pricePerKm;
     
     const driver = await User.findOneAndUpdate(
       { uid, role: 'driver' },
-      { routes, totalSeats },
+      updateData,
       { new: true }
     );
 
@@ -224,7 +226,7 @@ router.get('/ride-availability', verifyToken, async (req, res) => {
     const presentPassengers = allPassengers.length - absentCount;
     const freeSeats = totalSeats - presentPassengers - extraBookingsCount;
 
-    res.json({ availableSeats: Math.max(0, freeSeats), totalSeats });
+    res.json({ availableSeats: Math.max(0, freeSeats), totalSeats, pricePerKm: driver.pricePerKm || 0 });
   } catch (error) {
     console.error('[/ride-availability] error:', error);
     res.status(500).json({ message: 'Server error' });

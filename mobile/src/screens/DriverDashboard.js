@@ -19,7 +19,8 @@ export default function DriverDashboard({ route, navigation }) {
   const [isEditingRoute, setIsEditingRoute] = useState(false);
   const [routeData, setRouteData] = useState({
     routes: initialUser?.routes || [],
-    totalSeats: initialUser?.totalSeats ? String(initialUser.totalSeats) : ''
+    totalSeats: initialUser?.totalSeats ? String(initialUser.totalSeats) : '',
+    pricePerKm: initialUser?.pricePerKm ? String(initialUser.pricePerKm) : ''
   });
 
   const [isTripActive, setIsTripActive] = useState(initialUser?.isTripActive || false);
@@ -267,7 +268,8 @@ export default function DriverDashboard({ route, navigation }) {
 
       const response = await axios.put(`${API_URL}/update-route`, {
         routes: enrichedRoutes,
-        totalSeats: parseInt(routeData.totalSeats) || 0
+        totalSeats: parseInt(routeData.totalSeats) || 0,
+        pricePerKm: parseFloat(routeData.pricePerKm) || 0
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -394,6 +396,33 @@ export default function DriverDashboard({ route, navigation }) {
           </View>
         </View>
       )}
+
+      {item.extraBookings && item.extraBookings.length > 0 && (
+        <View style={{marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0'}}>
+          <Text style={{fontSize: 12, fontWeight: 'bold', color: '#666', textTransform: 'uppercase', marginBottom: 5}}>Extra Friend Bookings</Text>
+          <View style={{gap: 8}}>
+            {item.extraBookings.slice().sort((a,b) => a.date.localeCompare(b.date)).map((eb, idx) => (
+              <View key={idx} style={{backgroundColor: '#e8f5e9', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#c8e6c9'}}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
+                  <Text style={{fontWeight: 'bold', color: '#2e7d32', fontSize: 13}}>
+                    {typeof eb.date === 'string' ? new Date(eb.date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : ''} - {eb.period} Route
+                  </Text>
+                  <Text style={{backgroundColor: '#4caf50', color: 'white', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontSize: 11, fontWeight: 'bold'}}>
+                    {eb.seats} Seat(s)
+                  </Text>
+                </View>
+                {eb.pickupLocation && (
+                  <View style={{marginTop: 4, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: '#81c784'}}>
+                    <Text style={{fontSize: 11, color: '#555'}}><Text style={{fontWeight: 'bold', color: '#333'}}>From:</Text> {eb.pickupLocation.address}</Text>
+                    <Text style={{fontSize: 11, color: '#555', marginTop: 2}}><Text style={{fontWeight: 'bold', color: '#333'}}>To:</Text> {eb.dropoffLocation?.address}</Text>
+                    {eb.price && <Text style={{fontSize: 11, fontWeight: 'bold', color: '#2e7d32', marginTop: 4}}>Rs. {Math.round(eb.price)} ({eb.distanceKm?.toFixed(1)} km)</Text>}
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
     </View>
   );
   };
@@ -514,7 +543,10 @@ export default function DriverDashboard({ route, navigation }) {
                   </TouchableOpacity>
 
                   <Text style={[styles.inputLabel, {marginTop: 15}]}>Total Seats</Text>
-                  <TextInput style={styles.input} value={routeData.totalSeats} onChangeText={t => setRouteData({...routeData, totalSeats: t})} placeholder="Enter total seats" keyboardType="numeric" />
+                  <TextInput style={styles.input} value={routeData.totalSeats} onChangeText={t => setRouteData({...routeData, totalSeats: t})} keyboardType="numeric" placeholder="e.g. 14" />
+                  
+                  <Text style={styles.inputLabel}>Price per Km (Rs.)</Text>
+                  <TextInput style={styles.input} value={routeData.pricePerKm} onChangeText={t => setRouteData({...routeData, pricePerKm: t})} keyboardType="numeric" placeholder="e.g. 50" />
                   
                   <View style={styles.actionRow}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditingRoute(false)}>
@@ -542,7 +574,6 @@ export default function DriverDashboard({ route, navigation }) {
                     <Text style={styles.emptyText}>No routes set</Text>
                   )}
                   <View style={[styles.infoRow, {marginTop: 10, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10}]}>
-                    <MaterialIcons name="event-seat" size={20} color={Colors.light.primary} />
                     <Text style={[styles.infoText, {fontWeight: 'bold'}]}>{user?.totalSeats ? `${user.totalSeats} seats total` : 'Total seats not set'}</Text>
                   </View>
                 </View>

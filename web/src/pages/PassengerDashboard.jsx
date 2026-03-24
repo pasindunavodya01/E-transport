@@ -6,7 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
-import { geocodeAddress } from '../services/mapServices';
+import { geocodeAddress, fetchRouteAlternatives } from '../services/mapServices';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -58,6 +58,39 @@ export default function PassengerDashboard() {
   const [bookingPeriod, setBookingPeriod] = useState('Morning');
   const [bookSeats, setBookSeats] = useState(1);
   const [availableSeatsCheck, setAvailableSeatsCheck] = useState(null);
+  const [sameForAll, setSameForAll] = useState(true);
+  const [extraLocations, setExtraLocations] = useState([{ pickup: '', dropoff: '' }]);
+  const [extraDistance, setExtraDistance] = useState(null);
+  const [extraPrice, setExtraPrice] = useState(null);
+
+  const handleSeatCountChange = (val) => {
+    const seats = parseInt(val) || 1;
+    setBookSeats(val);
+    setExtraPrice(null);
+    if (!sameForAll) {
+      setExtraLocations(prev => {
+        const newLocs = [...prev];
+        while (newLocs.length < seats) newLocs.push({ pickup: '', dropoff: '' });
+        return newLocs.slice(0, seats);
+      });
+    }
+  };
+
+  const handleSameForAllChange = (isSame) => {
+    setSameForAll(isSame);
+    setExtraPrice(null);
+    if (isSame) {
+      setExtraLocations(prev => prev.slice(0, 1));
+    } else {
+      const seats = parseInt(bookSeats) || 1;
+      setExtraLocations(prev => {
+        const newLocs = [...prev];
+        while (newLocs.length < seats) newLocs.push({ pickup: '', dropoff: '' });
+        return newLocs.slice(0, seats);
+      });
+    }
+  };
+  const [calculatingPrice, setCalculatingPrice] = useState(false);
 
   // Payment state
   const [payments, setPayments] = useState([]);
@@ -268,14 +301,94 @@ export default function PassengerDashboard() {
     }
   };
 
+  const calculateExtraPrice = async () => {
+    for (let i = 0; i < extraLocations.length; i++) {
+      if (!extraLocations[i].pickup || !extraLocations[i].dropoff) {
+        alert(sameForAll ? 'Please enter both pickup and drop-off locations.' : `Please enter locations for Passenger ${i + 1}.`);
+        return;
+      }
+    }
+    setCalculatingPrice(true);
+    try {
+      let totalDist = 0;
+      let totalPrice = 0;
+      const priceRate = availableSeatsCheck?.pricePerKm || 0;
+
+      for (let i = 0; i < extraLocations.length; i++) {
+        const [startGeo, endGeo] = await Promise.all([
+          geocodeAddress(extraLocations[i].pickup),
+          geocodeAddress(extraLocations[i].dropoff)
+        ]);
+        if (!startGeo || !endGeo) throw new Error(`Could not find locations for Passenger ${i + 1}.`);
+        const alts = await fetchRouteAlternatives(startGeo, endGeo);
+        if (!alts || alts.length === 0) throw new Error(`Could not calculate distance for Passenger ${i + 1}.`);
+        
+        const distKm = alts[0].distance / 1000;
+        totalDist += distKm;
+        totalPrice += distKm * priceRate;
+      }
+
+      if (sameForAll) {
+        setExtraDistance(totalDist * bookSeats);
+        setExtraPrice(totalPrice * bookSeats);
+      } else {
+        setExtraDistance(totalDist);
+        setExtraPrice(totalPrice);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Error calculating price.');
+    } finally {
+      setCalculatingPrice(false);
+    }
+  };
+
   const confirmExtraBooking = async () => {
     if (!availableSeatsCheck) return;
-    if (bookSeats < 1 || bookSeats > availableSeatsCheck.availableSeats) { alert('Invalid seat count'); return; }
+    const seats = parseInt(bookSeats, 10);
+    if (seats < 1 || seats > availableSeatsCheck.availableSeats) { alert('Invalid seat count'); return; }
+    if (extraPrice === null) {
+      alert('Please calculate the price first.');
+      return;
+    }
     try {
-      const newBookings = [...extraBookings, { date: availableSeatsCheck.dateStr, period: availableSeatsCheck.period, seats: parseInt(bookSeats, 10) }];
+      const newBookings = [...extraBookings];
+      
+      if (sameForAll) {
+        newBookings.push({ 
+          date: availableSeatsCheck.dateStr, 
+          period: availableSeatsCheck.period, 
+          seats,
+          pickupLocation: { address: extraLocations[0].pickup },
+          dropoffLocation: { address: extraLocations[0].dropoff },
+          distanceKm: extraDistance,
+          price: extraPrice
+        });
+      } else {
+        for (let i = 0; i < seats; i++) {
+          newBookings.push({
+            date: availableSeatsCheck.dateStr, 
+            period: availableSeatsCheck.period, 
+            seats: 1,
+            pickupLocation: { address: extraLocations[i].pickup },
+            dropoffLocation: { address: extraLocations[i].dropoff },
+            distanceKm: extraDistance / seats, 
+            price: extraPrice / seats 
+          });
+        }
+      }
+
       const token = localStorage.getItem('userToken');
       const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-extra-bookings`, { extraBookings: newBookings }, { headers: { Authorization: `Bearer ${token}` } });
-      setExtraBookings(data.extraBookings || []); setAvailableSeatsCheck(null); setBookSeats(1); alert('Successfully booked extra seats!');
+      
+      setExtraBookings(data.extraBookings || []); 
+      setAvailableSeatsCheck(null); 
+      setBookSeats(1); 
+      setExtraLocations([{ pickup: '', dropoff: '' }]);
+      setSameForAll(true);
+      setExtraPrice(null);
+      setExtraDistance(null);
+      alert('Successfully booked extra seats!');
     } catch (err) { console.error(err); alert('Could not complete booking'); }
   };
 
@@ -663,9 +776,9 @@ export default function PassengerDashboard() {
                 <div>
                   <label className="text-sm font-semibold text-gray-700 block mb-3">1. Select Booking Date</label>
                   <div className="flex flex-wrap gap-3">
-                    <button onClick={() => {setBookingDateType('Today'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Today' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Today</button>
-                    <button onClick={() => {setBookingDateType('Tomorrow'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Tomorrow' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Tomorrow</button>
-                    <button onClick={() => {setBookingDateType('Specific'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Specific' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Specific Date</button>
+                    <button onClick={() => {setBookingDateType('Today'); setAvailableSeatsCheck(null); setExtraPrice(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Today' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Today</button>
+                    <button onClick={() => {setBookingDateType('Tomorrow'); setAvailableSeatsCheck(null); setExtraPrice(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Tomorrow' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Tomorrow</button>
+                    <button onClick={() => {setBookingDateType('Specific'); setAvailableSeatsCheck(null); setExtraPrice(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingDateType === 'Specific' ? 'bg-brand text-white border-brand shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Specific Date</button>
                   </div>
                   {bookingDateType === 'Specific' && (
                     <div className="mt-3 animate-fade-in">
@@ -679,8 +792,8 @@ export default function PassengerDashboard() {
                 <div>
                   <label className="text-sm font-semibold text-gray-700 block mb-3">2. Select Period</label>
                   <div className="flex flex-wrap gap-3">
-                    <button onClick={() => {setBookingPeriod('Morning'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Morning' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Morning Route</button>
-                    <button onClick={() => {setBookingPeriod('Evening'); setAvailableSeatsCheck(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Evening' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Evening Route</button>
+                    <button onClick={() => {setBookingPeriod('Morning'); setAvailableSeatsCheck(null); setExtraPrice(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Morning' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Morning Route</button>
+                    <button onClick={() => {setBookingPeriod('Evening'); setAvailableSeatsCheck(null); setExtraPrice(null);}} className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors border ${bookingPeriod === 'Evening' ? 'bg-green-100 text-green-700 border-green-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>Evening Route</button>
                   </div>
                 </div>
 
@@ -696,12 +809,59 @@ export default function PassengerDashboard() {
                           <CheckCircle className="w-5 h-5 text-green-600" />
                           <span className="font-bold text-green-800 text-lg">{availableSeatsCheck.availableSeats} Seats Available!</span>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <input type="number" min="1" max={availableSeatsCheck.availableSeats} value={bookSeats} onChange={e => setBookSeats(e.target.value)} className="w-20 px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 font-bold text-center" />
-                          <button onClick={confirmExtraBooking} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-bold shadow-md transition-colors">
-                            Book {bookSeats} Seat{bookSeats > 1 ? 's' : ''} Now!
-                          </button>
+                        <div className="flex items-center gap-3 mb-4">
+                          <label className="text-sm font-semibold text-gray-700">Seats needed:</label>
+                          <input type="number" min="1" max={availableSeatsCheck.availableSeats} value={bookSeats} onChange={e => handleSeatCountChange(e.target.value)} className="w-20 px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 font-bold text-center" />
                         </div>
+                        
+                        {parseInt(bookSeats) > 1 && (
+                          <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-lg border border-gray-200 shadow-sm cursor-pointer" onClick={() => handleSameForAllChange(!sameForAll)}>
+                            <input type="checkbox" checked={sameForAll} readOnly className="w-4 h-4 text-brand focus:ring-brand border-gray-300 rounded" />
+                            <label className="text-sm text-gray-700 font-medium cursor-pointer">Use same Pickup & Dropoff locations for all {bookSeats} passengers</label>
+                          </div>
+                        )}
+                        
+                        <div className="space-y-4 mb-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                          {extraLocations.map((loc, idx) => (
+                            <div key={idx} className="p-3 bg-white/50 rounded-lg border border-green-100 relative">
+                              {!sameForAll && <div className="absolute -top-3 -left-3 bg-green-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow-sm">{idx + 1}</div>}
+                              <div className="mb-2 mt-1">
+                                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block mb-1">Pickup Location {!sameForAll && `(Passenger ${idx + 1})`}</label>
+                                <input type="text" placeholder="e.g. Dematagoda Station" value={loc.pickup} onChange={e => {
+                                  const newLocs = [...extraLocations]; newLocs[idx].pickup = e.target.value; setExtraLocations(newLocs); setExtraPrice(null);
+                                }} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand shadow-sm text-sm" />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block mb-1">Drop-off Location {!sameForAll && `(Passenger ${idx + 1})`}</label>
+                                <input type="text" placeholder="e.g. Kandy Town" value={loc.dropoff} onChange={e => {
+                                  const newLocs = [...extraLocations]; newLocs[idx].dropoff = e.target.value; setExtraLocations(newLocs); setExtraPrice(null);
+                                }} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand shadow-sm text-sm" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {extraPrice === null ? (
+                          <button onClick={calculateExtraPrice} disabled={calculatingPrice} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-bold shadow-md transition-colors flex items-center justify-center gap-2">
+                            {calculatingPrice ? 'Calculating...' : 'Calculate Price & Distance'}
+                          </button>
+                        ) : (
+                          <div className="animate-fade-in">
+                            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-green-200 mb-3 shadow-sm">
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase font-semibold">Total Distance</p>
+                                <p className="font-bold text-gray-800">{extraDistance.toFixed(1)} km</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500 uppercase font-semibold">Total Price (@ Rs.{availableSeatsCheck.pricePerKm}/km)</p>
+                                <p className="font-bold text-green-700 text-lg">Rs. {Math.round(extraPrice)}</p>
+                              </div>
+                            </div>
+                            <button onClick={confirmExtraBooking} className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-lg">
+                              Confirm & Book {bookSeats} Seat{bookSeats > 1 ? 's' : ''}!
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
@@ -721,7 +881,14 @@ export default function PassengerDashboard() {
                       <div key={index} className="flex justify-between items-center bg-green-50/50 border border-green-100 p-2 px-3 rounded text-sm transition-colors hover:border-red-200">
                         <div>
                           <span className="font-medium text-gray-800 block">{typeof booking.date === 'string' ? new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''} - <span className="text-green-700 font-bold">{booking.seats} Seat(s)</span></span>
-                          <span className="text-xs font-semibold text-green-600 uppercase tracking-wider">{booking.period} Route</span>
+                          <span className="text-xs font-semibold text-green-600 uppercase tracking-wider block mb-1">{booking.period} Route</span>
+                          {booking.pickupLocation && (
+                            <div className="text-xs text-gray-600 mt-1 pl-2 border-l-2 border-green-200">
+                              <p><span className="font-semibold">From:</span> {booking.pickupLocation.address}</p>
+                              <p><span className="font-semibold">To:</span> {booking.dropoffLocation?.address}</p>
+                              {booking.price && <p className="text-green-700 font-semibold mt-1">Total: Rs. {booking.price} ({booking.distanceKm?.toFixed(1)} km)</p>}
+                            </div>
+                          )}
                         </div>
                         <button onClick={() => cancelExtraBooking(index)} className="text-red-500 hover:text-red-700 font-semibold p-2 rounded-lg hover:bg-red-50 transition-colors">
                           <span className="text-xs uppercase font-bold px-1">Cancel</span> <XCircle className="w-4 h-4 inline" />

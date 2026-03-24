@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema({
     polyline: { type: String }
   }],
   totalSeats: { type: Number },
+  pricePerKm: { type: Number, default: 0 },
   isTripActive: { type: Boolean, default: false },
   currentLocation: {
     lat: { type: Number },
@@ -51,7 +52,11 @@ const userSchema = new mongoose.Schema({
   extraBookings: [{
     date: { type: String, required: true },
     period: { type: String, enum: ['Morning', 'Evening', 'Both'], required: true },
-    seats: { type: Number, required: true, min: 1 }
+    seats: { type: Number, required: true, min: 1 },
+    pickupLocation: { type: mongoose.Schema.Types.Mixed },
+    dropoffLocation: { type: mongoose.Schema.Types.Mixed },
+    distanceKm: { type: Number },
+    price: { type: Number }
   }],
   payments: [{
     month: { type: String },           // e.g. "2026-03"
