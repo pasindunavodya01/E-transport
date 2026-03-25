@@ -5,8 +5,9 @@ import { Colors } from '../constants/Colors';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
 import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
-import { geocodeAddress, fetchRouteAlternatives } from '../services/mapServices';
+import { geocodeAddress, fetchRouteAlternatives, reverseGeocode } from '../services/mapServices';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 
 export default function PassengerDashboard({ route, navigation }) {
   const { user, token } = route.params || {};
@@ -33,6 +34,7 @@ export default function PassengerDashboard({ route, navigation }) {
   const [extraDistance, setExtraDistance] = useState(null);
   const [extraPrice, setExtraPrice] = useState(null);
   const [calculatingPrice, setCalculatingPrice] = useState(false);
+  const [mapPickingMode, setMapPickingMode] = useState(null); // 'pickup' | 'dropoff' | null
 
   const [driverLocation, setDriverLocation] = useState(null);
   const [isDriverActive, setIsDriverActive] = useState(false);
@@ -331,6 +333,44 @@ export default function PassengerDashboard({ route, navigation }) {
     navigation.replace('Login');
   };
 
+  const handleUseCurrentLocation = async (type) => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Permission to access location was denied');
+      return;
+    }
+
+    try {
+      let location = await Location.getCurrentPositionAsync({});
+      const address = await reverseGeocode(location.coords.latitude, location.coords.longitude);
+      if (address) {
+        setLocationData(prev => ({
+          ...prev,
+          [type + 'Location']: address
+        }));
+      } else {
+        Alert.alert('Error', 'Could not determine address for your current location.');
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'Failed to get current location.');
+    }
+  };
+
+  const handleMapPress = async (e) => {
+    if (mapPickingMode) {
+      const { latitude, longitude } = e.nativeEvent.coordinate;
+      const address = await reverseGeocode(latitude, longitude);
+      if (address) {
+        setLocationData(prev => ({
+          ...prev,
+          [mapPickingMode + 'Location']: address
+        }));
+        setMapPickingMode(null);
+      }
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -426,6 +466,7 @@ export default function PassengerDashboard({ route, navigation }) {
                     longitudeDelta: 0.01
                   }}
                   mapType={Platform.OS === "android" ? "none" : "standard"}
+                  onPress={handleMapPress}
                 >
                   {Platform.OS === 'android' && (
                     <UrlTile
@@ -505,13 +546,77 @@ export default function PassengerDashboard({ route, navigation }) {
           {isEditingLocations ? (
             <View style={styles.editSection}>
               <Text style={styles.inputLabel}>Pickup Location</Text>
-              <TextInput style={styles.input} value={locationData.pickupLocation} onChangeText={t => setLocationData({...locationData, pickupLocation: t})} placeholder="e.g., Dematagoda Station" />
+              <View style={styles.inputWithButtons}>
+                <TextInput style={[styles.input, {flex: 1}]} value={locationData.pickupLocation} onChangeText={t => setLocationData({...locationData, pickupLocation: t})} placeholder="e.g., Dematagoda Station" />
+                <TouchableOpacity style={styles.iconBtn} onPress={() => handleUseCurrentLocation('pickup')}>
+                  <MaterialIcons name="my-location" size={20} color={Colors.light.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.iconBtn, mapPickingMode === 'pickup' && styles.iconBtnActive]} onPress={() => setMapPickingMode('pickup')}>
+                  <MaterialIcons name="map" size={20} color={mapPickingMode === 'pickup' ? 'white' : Colors.light.primary} />
+                </TouchableOpacity>
+              </View>
               
               <Text style={styles.inputLabel}>Drop-off Location</Text>
-              <TextInput style={styles.input} value={locationData.dropoffLocation} onChangeText={t => setLocationData({...locationData, dropoffLocation: t})} placeholder="e.g., Kandy Town" />
-              
+              <View style={styles.inputWithButtons}>
+                <TextInput style={[styles.input, {flex: 1}]} value={locationData.dropoffLocation} onChangeText={t => setLocationData({...locationData, dropoffLocation: t})} placeholder="e.g., Kandy Town" />
+                <TouchableOpacity style={styles.iconBtn} onPress={() => handleUseCurrentLocation('dropoff')}>
+                  <MaterialIcons name="my-location" size={20} color={Colors.light.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.iconBtn, mapPickingMode === 'dropoff' && styles.iconBtnActive]} onPress={() => setMapPickingMode('dropoff')}>
+                  <MaterialIcons name="map" size={20} color={mapPickingMode === 'dropoff' ? 'white' : Colors.light.primary} />
+                </TouchableOpacity>
+              </View>
+
+              {mapPickingMode && (
+                <View style={[styles.mapContainer, { height: 250, borderWidth: 2, borderColor: Colors.light.primary }]}>
+                  <MapView
+                    style={styles.map}
+                    initialRegion={{
+                      latitude: currentUser?.pickupLocation?.lat || 6.9271,
+                      longitude: currentUser?.pickupLocation?.lng || 79.8612,
+                      latitudeDelta: 0.05,
+                      longitudeDelta: 0.05
+                    }}
+                    onPress={handleMapPress}
+                    mapType={Platform.OS === "android" ? "none" : "standard"}
+                  >
+                    {Platform.OS === 'android' && (
+                      <UrlTile
+                        urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        maximumZ={19}
+                        flipY={false}
+                      />
+                    )}
+                    {currentUser?.pickupLocation?.lat && (
+                      <Marker
+                        coordinate={{ latitude: currentUser.pickupLocation.lat, longitude: currentUser.pickupLocation.lng }}
+                        title="Current Pickup"
+                      >
+                        <View style={{ backgroundColor: '#10b981', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white' }}>
+                          <MaterialIcons name="person-pin-circle" size={20} color="white" />
+                        </View>
+                      </Marker>
+                    )}
+                    {currentUser?.dropoffLocation?.lat && (
+                      <Marker
+                        coordinate={{ latitude: currentUser.dropoffLocation.lat, longitude: currentUser.dropoffLocation.lng }}
+                        title="Current Drop-off"
+                      >
+                        <View style={{ backgroundColor: '#ef4444', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white' }}>
+                          <MaterialIcons name="location-on" size={20} color="white" />
+                        </View>
+                      </Marker>
+                    )}
+                  </MapView>
+                  <View style={styles.pickingInstructionsFloating}>
+                     <MaterialIcons name="touch-app" size={20} color="white" />
+                     <Text style={styles.pickingTextFloating}>Tap map to select {mapPickingMode}</Text>
+                  </View>
+                </View>
+              )}
+
               <View style={styles.actionRow}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditingLocations(false)}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setIsEditingLocations(false); setMapPickingMode(null); }}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleSaveLocations}>
@@ -920,4 +1025,12 @@ const styles = StyleSheet.create({
   mapInactiveText: { color: '#888', fontStyle: 'italic', fontSize: 13 },
   markerContainer: { width: 30, height: 30, backgroundColor: 'rgba(0,150,255,0.2)', borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   markerDot: { width: 12, height: 12, backgroundColor: '#007AFF', borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
+  
+  inputWithButtons: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 15 },
+  iconBtn: { padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8, borderWidth: 1, borderColor: '#ddd', height: 45, justifyContent: 'center' },
+  iconBtnActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
+  pickingInstructions: { backgroundColor: Colors.light.primary, padding: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 15 },
+  pickingText: { color: 'white', fontSize: 13, fontWeight: 'bold', flex: 1 },
+  pickingInstructionsFloating: { position: 'absolute', bottom: 10, left: 10, right: 10, backgroundColor: 'rgba(59, 130, 246, 0.9)', padding: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 },
+  pickingTextFloating: { color: 'white', fontSize: 12, fontWeight: 'bold', flex: 1 },
 });

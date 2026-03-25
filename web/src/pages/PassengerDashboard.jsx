@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map, CreditCard } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { LogOut, MapPin, Hash, User, Phone, Mail, CalendarOff, Users, CheckCircle, XCircle, Navigation, Map, CreditCard, LocateFixed, MousePointer2 } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
-import { geocodeAddress, fetchRouteAlternatives } from '../services/mapServices';
+import { geocodeAddress, fetchRouteAlternatives, reverseGeocode } from '../services/mapServices';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -62,6 +62,7 @@ export default function PassengerDashboard() {
   const [extraLocations, setExtraLocations] = useState([{ pickup: '', dropoff: '' }]);
   const [extraDistance, setExtraDistance] = useState(null);
   const [extraPrice, setExtraPrice] = useState(null);
+  const [mapPickingMode, setMapPickingMode] = useState(null); // 'pickup' | 'dropoff' | null
 
   const handleSeatCountChange = (val) => {
     const seats = parseInt(val) || 1;
@@ -185,6 +186,50 @@ export default function PassengerDashboard() {
     localStorage.removeItem('userRole');
     navigate('/login');
   };
+
+  const handleUseCurrentLocation = (type) => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const { latitude, longitude } = position.coords;
+      const address = await reverseGeocode(latitude, longitude);
+      if (address) {
+        setLocationData(prev => ({
+          ...prev,
+          [type + 'Location']: address
+        }));
+        // If we have a picked coordinate, we should store it to avoid re-geocoding later
+        // But for now, the existing save logic uses geocodeAddress(address)
+      } else {
+        alert("Could not determine address for your current location.");
+      }
+    }, (error) => {
+      console.error(error);
+      alert("Error getting your location: " + error.message);
+    });
+  };
+
+  function MapClickHandler() {
+    useMapEvents({
+      click: async (e) => {
+        if (mapPickingMode) {
+          const { lat, lng } = e.latlng;
+          const address = await reverseGeocode(lat, lng);
+          if (address) {
+            setLocationData(prev => ({
+              ...prev,
+              [mapPickingMode + 'Location']: address
+            }));
+            setMapPickingMode(null);
+          }
+        }
+      },
+    });
+    return null;
+  }
 
   const handleSaveLocations = async () => {
     try {
@@ -591,16 +636,61 @@ export default function PassengerDashboard() {
               
               {isEditingLocations ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm text-gray-600 mb-1">Pickup Location</label>
-                    <input type="text" value={locationData.pickupLocation} onChange={e => setLocationData({...locationData, pickupLocation: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Dematagoda Station"/>
+                    <div className="flex gap-2">
+                       <input type="text" value={locationData.pickupLocation} onChange={e => setLocationData({...locationData, pickupLocation: e.target.value})} className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Dematagoda Station"/>
+                       <button title="Use current location" onClick={() => handleUseCurrentLocation('pickup')} className="p-2 bg-gray-100 hover:bg-brand-light text-gray-600 hover:text-brand rounded-lg transition-colors border border-gray-200">
+                         <LocateFixed className="w-5 h-5" />
+                       </button>
+                       <button title="Pick on map" onClick={() => setMapPickingMode('pickup')} className={`p-2 rounded-lg transition-colors border ${mapPickingMode === 'pickup' ? 'bg-brand text-white border-brand' : 'bg-gray-100 hover:bg-brand-light text-gray-600 hover:text-brand border-gray-200'}`}>
+                         <MousePointer2 className="w-5 h-5" />
+                       </button>
+                    </div>
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm text-gray-600 mb-1">Drop-off Location</label>
-                    <input type="text" value={locationData.dropoffLocation} onChange={e => setLocationData({...locationData, dropoffLocation: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Kandy Town"/>
+                    <div className="flex gap-2">
+                      <input type="text" value={locationData.dropoffLocation} onChange={e => setLocationData({...locationData, dropoffLocation: e.target.value})} className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" placeholder="e.g., Kandy Town"/>
+                      <button title="Use current location" onClick={() => handleUseCurrentLocation('dropoff')} className="p-2 bg-gray-100 hover:bg-brand-light text-gray-600 hover:text-brand rounded-lg transition-colors border border-gray-200">
+                         <LocateFixed className="w-5 h-5" />
+                       </button>
+                       <button title="Pick on map" onClick={() => setMapPickingMode('dropoff')} className={`p-2 rounded-lg transition-colors border ${mapPickingMode === 'dropoff' ? 'bg-brand text-white border-brand' : 'bg-gray-100 hover:bg-brand-light text-gray-600 hover:text-brand border-gray-200'}`}>
+                         <MousePointer2 className="w-5 h-5" />
+                       </button>
+                    </div>
                   </div>
+                  {mapPickingMode && (
+                    <div className="md:col-span-2 mt-4 h-64 rounded-xl overflow-hidden border-2 border-brand relative shadow-inner">
+                      <MapContainer
+                        center={[profile?.pickupLocation?.lat || 6.9271, profile?.pickupLocation?.lng || 79.8612]}
+                        zoom={13}
+                        style={{ height: '100%', width: '100%', zIndex: 0 }}
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <MapClickHandler />
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-brand text-white px-4 py-2 rounded-full shadow-lg font-medium flex items-center gap-2 animate-bounce">
+                          <MousePointer2 className="w-4 h-4" /> Click map to select {mapPickingMode}
+                        </div>
+                        {profile?.pickupLocation?.lat && (
+                          <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]} icon={pickupIcon}>
+                            <Popup>📍 Current Pickup: {profile.pickupLocation.address}</Popup>
+                          </Marker>
+                        )}
+                        {profile?.dropoffLocation?.lat && (
+                          <Marker position={[profile.dropoffLocation.lat, profile.dropoffLocation.lng]} icon={dropoffIcon}>
+                            <Popup>🏁 Current Drop-off: {profile.dropoffLocation.address}</Popup>
+                          </Marker>
+                        )}
+                      </MapContainer>
+                    </div>
+                  )}
+
                   <div className="md:col-span-2 flex gap-2 justify-end mt-2">
-                    <button onClick={() => setIsEditingLocations(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancel</button>
+                    <button onClick={() => { setIsEditingLocations(false); setMapPickingMode(null); }} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancel</button>
                     <button onClick={handleSaveLocations} className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-dark transition-colors">Save</button>
                   </div>
                 </div>
@@ -636,6 +726,12 @@ export default function PassengerDashboard() {
                           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
+                        <MapClickHandler />
+                        {mapPickingMode && (
+                          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-brand text-white px-4 py-2 rounded-full shadow-lg font-medium flex items-center gap-2 animate-bounce">
+                            <MousePointer2 className="w-4 h-4" /> Click map to select {mapPickingMode}
+                          </div>
+                        )}
                         <Marker position={[profile.pickupLocation.lat, profile.pickupLocation.lng]} icon={pickupIcon}>
                           <Popup>📍 Pickup: {profile.pickupLocation.address}</Popup>
                         </Marker>

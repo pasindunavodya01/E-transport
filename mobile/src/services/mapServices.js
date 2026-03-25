@@ -21,6 +21,22 @@ export const geocodeAddress = async (query) => {
   return null;
 };
 
+// Reverse Geocode: Lat/Lng -> Address
+export const reverseGeocode = async (lat, lng) => {
+  try {
+    const { data } = await axios.get(`https://nominatim.openstreetmap.org/reverse`, {
+      params: { lat, lon: lng, format: 'json' },
+      headers: { 'Accept-Language': 'en' }
+    });
+    if (data && data.display_name) {
+      return data.display_name;
+    }
+  } catch (error) {
+    console.error('Reverse Geocoding error:', error);
+  }
+  return null;
+};
+
 // Call OSRM API for Driving Routes returning GeoJSON format
 export const fetchRoutePolyline = async (startCoords, endCoords, viaCoords = null) => {
   if (!startCoords || !endCoords) return null;
