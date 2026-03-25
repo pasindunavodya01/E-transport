@@ -181,6 +181,12 @@ router.put('/update-absences', verifyToken, async (req, res) => {
     }
 
     res.json(passenger);
+
+    // Emit socket event for availability change
+    const io = req.app.get('socketio');
+    if (io && passenger.chosenVehicleNumber) {
+      io.emit(`availability_update_${passenger.chosenVehicleNumber}`, { vehicleNumber: passenger.chosenVehicleNumber });
+    }
   } catch (error) {
     console.error('[/update-absences] error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -252,6 +258,12 @@ router.put('/update-extra-bookings', verifyToken, async (req, res) => {
     }
 
     res.json(passenger);
+
+    // Emit socket event for availability change
+    const io = req.app.get('socketio');
+    if (io && passenger.chosenVehicleNumber) {
+      io.emit(`availability_update_${passenger.chosenVehicleNumber}`, { vehicleNumber: passenger.chosenVehicleNumber });
+    }
   } catch (error) {
     console.error('[/update-extra-bookings] error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -295,6 +307,12 @@ router.put('/start-trip', verifyToken, async (req, res) => {
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
     res.json({ isTripActive: driver.isTripActive });
+
+    // Emit socket event for trip status
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit(`trip_status_update_${uid}`, { driverId: uid, isTripActive: true });
+    }
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -311,6 +329,12 @@ router.put('/end-trip', verifyToken, async (req, res) => {
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
     res.json({ isTripActive: driver.isTripActive });
+
+    // Emit socket event for trip status
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit(`trip_status_update_${uid}`, { driverId: uid, isTripActive: false });
+    }
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }

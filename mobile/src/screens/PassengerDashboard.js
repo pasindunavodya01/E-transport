@@ -65,6 +65,21 @@ export default function PassengerDashboard({ route, navigation }) {
         setIsDriverActive(true);
         setDriverLocation(loc);
       });
+
+      socketRef.current.on(`trip_status_update_${driverProfile.uid}`, (data) => {
+        setIsDriverActive(data.isTripActive);
+        // Refresh driver details and other info
+        fetchDriverDetails();
+      });
+
+      if (user?.chosenVehicleNumber) {
+        socketRef.current.on(`availability_update_${user.chosenVehicleNumber}`, () => {
+          // If the user has a date/period selected for checking availability
+          if (bookingQuery.date && bookingQuery.period) {
+            checkAvailability();
+          }
+        });
+      }
     } else {
       setIsDriverActive(false);
       setDriverLocation(null);

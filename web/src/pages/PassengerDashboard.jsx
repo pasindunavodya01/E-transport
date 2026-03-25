@@ -171,6 +171,19 @@ export default function PassengerDashboard() {
         setIsDriverActive(true);
         setDriverLocation(loc);
       });
+
+      newSocket.on(`trip_status_update_${driverProfile.uid}`, (data) => {
+        setIsDriverActive(data.isTripActive);
+        // Also refresh profile to get any other updated info
+        fetchProfile();
+      });
+
+      if (profile?.chosenVehicleNumber) {
+        newSocket.on(`availability_update_${profile.chosenVehicleNumber}`, () => {
+          // If we are currently checking availability, refresh it
+          checkAvailability();
+        });
+      }
     } else {
       setIsDriverActive(false);
       setDriverLocation(null);
