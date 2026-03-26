@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
-import { Colors } from '../constants/Colors';
-import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, FlatList,
+  ActivityIndicator, TextInput, Alert, Platform,
+  ScrollView, Image, StatusBar, SafeAreaView
+} from 'react-native';
+import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import * as Location from 'expo-location';
 import { io } from 'socket.io-client';
@@ -9,154 +12,190 @@ import MapView, { Marker, UrlTile, Polyline } from 'react-native-maps';
 import { geocodeAddress, fetchRoutePolyline, fetchRouteAlternatives } from '../services/mapServices';
 import * as ImagePicker from 'expo-image-picker';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL + '/auth';
+const API = process.env.EXPO_PUBLIC_API_URL + '/auth';
 
+// ─── Design tokens (same as PassengerDashboard) ──────────────────
+const C = {
+  bg:        '#0a0f1a',
+  surface:   '#111827',
+  surface2:  '#1f2937',
+  border:    '#1f2937',
+  border2:   '#374151',
+  amber:     '#f59e0b',
+  amberDim:  'rgba(245,158,11,0.15)',
+  green:     '#10b981',
+  greenDim:  'rgba(16,185,129,0.15)',
+  red:       '#ef4444',
+  redDim:    'rgba(239,68,68,0.15)',
+  blue:      '#3b82f6',
+  blueDim:   'rgba(59,130,246,0.15)',
+  orange:    '#f97316',
+  orangeDim: 'rgba(249,115,22,0.15)',
+  text:      '#f9fafb',
+  textSub:   '#9ca3af',
+  textMuted: '#6b7280',
+};
+
+const TABS = [
+  { id: 'overview',   label: 'Overview',  icon: 'grid-outline' },
+  { id: 'tracking',   label: 'Live Map',  icon: 'navigate-outline' },
+  { id: 'passengers', label: 'Riders',    icon: 'people-outline' },
+  { id: 'payments',   label: 'Payments',  icon: 'card-outline' },
+  { id: 'settings',   label: 'Settings',  icon: 'settings-outline' },
+];
+
+// ─── Primitives ───────────────────────────────────────────────────
+const Card = ({ children, style }) => <View style={[s.card, style]}>{children}</View>;
+
+const SectionTitle = ({ children, color = C.amber }) => (
+  <Text style={[s.sectionTitle, { color }]}>{children}</Text>
+);
+
+const Pill = ({ label, active, color = C.amber, onPress, style }) => (
+  <TouchableOpacity onPress={onPress}
+    style={[s.pill, active && { backgroundColor: color + '25', borderColor: color }, style]}>
+    <Text style={[s.pillText, active && { color }]}>{label}</Text>
+  </TouchableOpacity>
+);
+
+const PrimaryBtn = ({ label, onPress, disabled, color = C.amber, icon, loading }) => (
+  <TouchableOpacity onPress={onPress} disabled={disabled}
+    style={[s.primaryBtn, { backgroundColor: color, opacity: disabled ? 0.5 : 1 }]}>
+    {loading
+      ? <ActivityIndicator color={C.bg} size="small" />
+      : <>
+          {icon && <MaterialIcons name={icon} size={18} color={C.bg} style={{ marginRight: 8 }} />}
+          <Text style={s.primaryBtnText}>{label}</Text>
+        </>}
+  </TouchableOpacity>
+);
+
+const GhostBtn = ({ label, onPress }) => (
+  <TouchableOpacity onPress={onPress} style={s.ghostBtn}>
+    <Text style={s.ghostBtnText}>{label}</Text>
+  </TouchableOpacity>
+);
+
+const StyledInput = ({ label, ...props }) => (
+  <View style={{ marginBottom: 14 }}>
+    {label && <Text style={s.inputLabel}>{label}</Text>}
+    <TextInput style={s.input} placeholderTextColor={C.textMuted} {...props} />
+  </View>
+);
+
+const StatusBadge = ({ status }) => {
+  const map = {
+    approved: { bg: C.greenDim, text: C.green,  label: '✓ Approved' },
+    rejected: { bg: C.redDim,   text: C.red,    label: '✕ Rejected' },
+    pending:  { bg: C.amberDim, text: C.amber,  label: '⏳ Pending' },
+  };
+  const t = map[status] || map.pending;
+  return (
+    <View style={[s.statusBadge, { backgroundColor: t.bg }]}>
+      <Text style={[s.statusBadgeText, { color: t.text }]}>{t.label}</Text>
+    </View>
+  );
+};
+
+// ─── Main ─────────────────────────────────────────────────────────
 export default function DriverDashboard({ route, navigation }) {
   const { user: initialUser, token } = route.params || {};
-  const [user, setUser] = useState(initialUser);
-  const [passengers, setPassengers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isEditingRoute, setIsEditingRoute] = useState(false);
-  const [routeData, setRouteData] = useState({
-    routes: initialUser?.routes || [],
-    totalSeats: initialUser?.totalSeats ? String(initialUser.totalSeats) : '',
-    pricePerKm: initialUser?.pricePerKm ? String(initialUser.pricePerKm) : ''
+  const [activeTab,       setActiveTab]       = useState('overview');
+  const [user,            setUser]            = useState(initialUser);
+  const [passengers,      setPassengers]      = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [isEditingRoute,  setIsEditingRoute]  = useState(false);
+  const [routeData,       setRouteData]       = useState({
+    routes:      initialUser?.routes || [],
+    totalSeats:  initialUser?.totalSeats  ? String(initialUser.totalSeats)  : '',
+    pricePerKm:  initialUser?.pricePerKm  ? String(initialUser.pricePerKm)  : '',
   });
-
-  const [isTripActive, setIsTripActive] = useState(initialUser?.isTripActive || false);
+  const [isTripActive,    setIsTripActive]    = useState(initialUser?.isTripActive || false);
   const [currentLocation, setCurrentLocation] = useState(initialUser?.currentLocation || null);
-  const socketRef = React.useRef(null);
-  const locationSubRef = React.useRef(null);
-  const [routePolylines, setRoutePolylines] = useState(
+  const [routePolylines,  setRoutePolylines]  = useState(
     (initialUser?.routes || []).filter(r => r.polyline).map(r => ({ points: JSON.parse(r.polyline) }))
   );
-  const [allPayments, setAllPayments] = useState([]);
-  const [reviewNotes, setReviewNotes] = useState({});
-  const [isEditingBank, setIsEditingBank] = useState(false);
-  const [bankDetails, setBankDetails] = useState({
-    bankName: initialUser?.bankDetails?.bankName || '',
-    accountName: initialUser?.bankDetails?.accountName || '',
+  const [allPayments,     setAllPayments]     = useState([]);
+  const [reviewNotes,     setReviewNotes]     = useState({});
+  const [isEditingBank,   setIsEditingBank]   = useState(false);
+  const [bankDetails,     setBankDetails]     = useState({
+    bankName:      initialUser?.bankDetails?.bankName      || '',
+    accountName:   initialUser?.bankDetails?.accountName   || '',
     accountNumber: initialUser?.bankDetails?.accountNumber || '',
-    branchName: initialUser?.bankDetails?.branchName || ''
+    branchName:    initialUser?.bankDetails?.branchName    || '',
   });
-
-  const [systemPayments, setSystemPayments] = useState([]);
-  const [sysPayMonth, setSysPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [sysPayAmount, setSysPayAmount] = useState('');
-  const [sysPayImage, setSysPayImage] = useState(null); // { uri, type, name }
+  const [systemPayments,  setSystemPayments]  = useState([]);
+  const [sysPayMonth,     setSysPayMonth]     = useState(() => new Date().toISOString().slice(0, 7));
+  const [sysPayAmount,    setSysPayAmount]    = useState('');
+  const [sysPayImage,     setSysPayImage]     = useState(null);
   const [sysPayUploading, setSysPayUploading] = useState(false);
 
-  useEffect(() => {
-    fetchPassengers();
-    fetchAllPayments();
-  }, []);
+  const socketRef     = useRef(null);
+  const locationSubRef = useRef(null);
+
+  // ── init ─────────────────────────────────────────────────────
+  useEffect(() => { fetchPassengers(); fetchAllPayments(); }, []);
 
   useEffect(() => {
-    if (isTripActive && user) {
-      startTracking();
-    } else {
-      stopTracking();
-    }
-
+    if (isTripActive && user) startTracking();
+    else stopTracking();
     return () => stopTracking();
   }, [isTripActive, user]);
 
+  // ── tracking ──────────────────────────────────────────────────
   const startTracking = async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
+    const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Allow location access to broadcast your live position.');
-      setIsTripActive(false);
-      return;
+      Alert.alert('Permission Denied', 'Allow location access to broadcast your position.');
+      setIsTripActive(false); return;
     }
-
     socketRef.current = io(process.env.EXPO_PUBLIC_API_URL.replace('/api', ''), { transports: ['websocket'] });
-
     locationSubRef.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 10000,
-        distanceInterval: 10,
-      },
-      (location) => {
-        const loc = {
-          lat: location.coords.latitude,
-          lng: location.coords.longitude,
-          timestamp: new Date()
-        };
-        setCurrentLocation(loc);
-        
-        if (socketRef.current) {
-          socketRef.current.emit('driver_location_update', {
-            driverId: user.uid,
-            ...loc
-          });
-        }
-
-        axios.put(`${API_URL}/update-location`, loc, {
-          headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => {});
+      { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 },
+      loc => {
+        const l = { lat: loc.coords.latitude, lng: loc.coords.longitude, timestamp: new Date() };
+        setCurrentLocation(l);
+        socketRef.current?.emit('driver_location_update', { driverId: user.uid, ...l });
+        axios.put(`${API}/update-location`, l, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
       }
     );
   };
 
   const stopTracking = () => {
-    if (locationSubRef.current) {
-      locationSubRef.current.remove();
-      locationSubRef.current = null;
-    }
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
+    locationSubRef.current?.remove(); locationSubRef.current = null;
+    socketRef.current?.disconnect(); socketRef.current = null;
   };
 
   const toggleTrip = async () => {
     try {
-      const endpoint = isTripActive ? 'end-trip' : 'start-trip';
-      const response = await axios.put(`${API_URL}/${endpoint}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setIsTripActive(response.data.isTripActive);
-      if (!response.data.isTripActive) {
-        setCurrentLocation(null);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Could not toggle trip state.');
-    }
+      const ep = isTripActive ? 'end-trip' : 'start-trip';
+      const { data } = await axios.put(`${API}/${ep}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setIsTripActive(data.isTripActive);
+      if (!data.isTripActive) setCurrentLocation(null);
+    } catch { Alert.alert('Error', 'Could not toggle trip state.'); }
   };
 
+  // ── data fetchers ─────────────────────────────────────────────
   const fetchPassengers = async () => {
     try {
-      const response = await axios.get(`${API_URL}/passengers`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setPassengers(response.data);
-    } catch (error) {
-      console.error('Failed to fetch passengers:', error);
-    } finally {
-      setLoading(false);
-    }
+      const { data } = await axios.get(`${API}/passengers`, { headers: { Authorization: `Bearer ${token}` } });
+      setPassengers(data);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
   const fetchAllPayments = async () => {
     try {
-      const paymentsRes = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/all-payments`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setAllPayments(paymentsRes.data || []);
-
-      // Fetch driver's own system payments to admin
-      const sysRes = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/admin/my-payments`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const [allRes, sysRes] = await Promise.all([
+        axios.get(`${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/all-payments`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/admin/my-payments`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setAllPayments(allRes.data || []);
       setSystemPayments(sysRes.data || []);
-    } catch (err) {
-      console.error('Error fetching payments:', err);
-    }
+    } catch (e) { console.error(e); }
   };
 
+  // ── actions ───────────────────────────────────────────────────
   const reviewPayment = async (passengerId, paymentId, status) => {
     try {
       await axios.put(
@@ -165,845 +204,795 @@ export default function DriverDashboard({ route, navigation }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       await fetchAllPayments();
-    } catch (err) {
-      Alert.alert('Error', 'Failed to update payment status');
-    }
+    } catch { Alert.alert('Error', 'Failed to update payment status.'); }
   };
 
   const handleSaveBankDetails = async () => {
     try {
-      const response = await axios.put(`${API_URL}/update-bank-details`, { bankDetails }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUser(response.data);
-      setIsEditingBank(false);
-      Alert.alert('Success', 'Bank details updated successfully');
-    } catch (error) {
-      console.error('Failed to update bank details:', error);
-      Alert.alert('Error', 'Failed to update bank details');
-    }
+      const { data } = await axios.put(`${API}/update-bank-details`, { bankDetails }, { headers: { Authorization: `Bearer ${token}` } });
+      setUser(data); setIsEditingBank(false);
+      Alert.alert('Success', 'Bank details updated.');
+    } catch { Alert.alert('Error', 'Failed to update bank details.'); }
+  };
+
+  const handleSaveRoute = async () => {
+    try {
+      const enriched = await Promise.all((routeData.routes || []).map(async r => {
+        if (r.polylineOverride) return { route:r.route, via:r.via, startTime:r.startTime, polyline:r.polylineOverride };
+        if (!r.route) return r;
+        const parts = r.route.split(/ - | to |,/i);
+        if (parts.length < 2) return r;
+        const [sg, eg] = await Promise.all([geocodeAddress(parts[0].trim()), geocodeAddress(parts[parts.length-1].trim())]);
+        let via = null;
+        if (r.via?.trim()) {
+          const geos = await Promise.all(r.via.split(',').map(v => geocodeAddress(v.trim())));
+          via = geos.filter(Boolean); if (!via.length) via = null;
+        }
+        if (sg && eg) {
+          const pts = await fetchRoutePolyline(sg, eg, via);
+          return { ...r, polyline: pts ? JSON.stringify(pts) : undefined };
+        }
+        return r;
+      }));
+      const { data } = await axios.put(`${API}/update-route`, {
+        routes: enriched,
+        totalSeats: parseInt(routeData.totalSeats) || 0,
+        pricePerKm: parseFloat(routeData.pricePerKm) || 0,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setUser(data);
+      setRoutePolylines((data.routes||[]).filter(r=>r.polyline).map(r=>({points:JSON.parse(r.polyline)})));
+      setIsEditingRoute(false);
+    } catch { Alert.alert('Error', 'Failed to update route.'); }
+  };
+
+  const handleFindAlternatives = async index => {
+    const r = routeData.routes[index];
+    if (!r.route) { Alert.alert('Error', 'Enter a route first.'); return; }
+    const parts = r.route.split(/ - | to |,/i);
+    if (parts.length < 2) { Alert.alert('Error', "Use format: Colombo - Kandy"); return; }
+    try {
+      const [sg, eg] = await Promise.all([geocodeAddress(parts[0].trim()), geocodeAddress(parts[parts.length-1].trim())]);
+      let via = null;
+      if (r.via?.trim()) {
+        const geos = await Promise.all(r.via.split(',').map(v => geocodeAddress(v.trim())));
+        via = geos.filter(Boolean); if (!via.length) via = null;
+      }
+      if (sg && eg) {
+        const alts = await fetchRouteAlternatives(sg, eg, via);
+        if (alts?.length) {
+          const nr = [...routeData.routes];
+          nr[index] = { ...nr[index], alternatives:alts, selectedAlternativeIndex:0, polylineOverride:alts[0].polyline };
+          setRouteData({ ...routeData, routes: nr });
+        } else Alert.alert('Error', 'Could not generate alternatives.');
+      } else Alert.alert('Error', 'Could not verify locations.');
+    } catch { Alert.alert('Error', 'Failed fetching alternatives.'); }
   };
 
   const pickSystemPaymentImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-    });
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      setSysPayImage({
-        uri: asset.uri,
-        type: 'image/jpeg',
-        name: `sys_payment_${Date.now()}.jpg`,
-      });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes:ImagePicker.MediaTypeOptions.Images, allowsEditing:true, quality:0.8 });
+    if (!res.canceled) {
+      const a = res.assets[0];
+      setSysPayImage({ uri:a.uri, type:'image/jpeg', name:`sys_payment_${Date.now()}.jpg` });
     }
   };
 
   const uploadSystemPayment = async () => {
     if (!sysPayMonth || !sysPayAmount || !sysPayImage) {
-      Alert.alert('Missing Fields', 'Please fill in month, amount, and upload a receipt.');
-      return;
+      Alert.alert('Missing Fields', 'Fill in month, amount, and pick a receipt.'); return;
     }
     setSysPayUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('month', sysPayMonth);
-      formData.append('amount', sysPayAmount);
-      formData.append('receipt', sysPayImage);
-
-      const response = await axios.post(
+      const fd = new FormData();
+      fd.append('month', sysPayMonth); fd.append('amount', sysPayAmount); fd.append('receipt', sysPayImage);
+      const { data } = await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL.replace('/api', '')}/api/payments/admin/upload`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+        fd, { headers: { Authorization:`Bearer ${token}`, 'Content-Type':'multipart/form-data' } }
       );
-      setSystemPayments(response.data.systemPayments || []);
-      setSysPayAmount('');
-      setSysPayImage(null);
-      Alert.alert('Success', 'System payment successfully uploaded!');
-    } catch (error) {
-      console.error('System payment upload failed:', error);
-      Alert.alert('Error', 'Failed to upload payment receipt.');
-    } finally {
-      setSysPayUploading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    navigation.replace('Login');
-  };
-
-  const handleSaveRoute = async () => {
-    try {
-      // Geocode start/end of each route and fetch OSRM polylines
-      const enrichedRoutes = await Promise.all((routeData.routes || []).map(async (r) => {
-        if (r.polylineOverride) {
-          return { route: r.route, via: r.via, startTime: r.startTime, polyline: r.polylineOverride };
-        }
-        if (!r.route) return r;
-        const parts = r.route.split(/ - | to |,/i);
-        if (parts.length < 2) return r;
-        const [startGeo, endGeo] = await Promise.all([
-          geocodeAddress(parts[0].trim()),
-          geocodeAddress(parts[parts.length - 1].trim())
-        ]);
-        let viaGeoList = null;
-        if (r.via && r.via.trim()) {
-          const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
-          const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
-          viaGeoList = geoResults.filter(g => g !== null);
-          if (viaGeoList.length === 0) viaGeoList = null;
-        }
-        if (startGeo && endGeo) {
-          const polylinePoints = await fetchRoutePolyline(startGeo, endGeo, viaGeoList);
-          return { ...r, polyline: polylinePoints ? JSON.stringify(polylinePoints) : undefined };
-        }
-        return r;
-      }));
-
-      const response = await axios.put(`${API_URL}/update-route`, {
-        routes: enrichedRoutes,
-        totalSeats: parseInt(routeData.totalSeats) || 0,
-        pricePerKm: parseFloat(routeData.pricePerKm) || 0
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUser(response.data);
-      const polys = (response.data.routes || [])
-        .filter(r => r.polyline)
-        .map(r => ({ points: JSON.parse(r.polyline) }));
-      setRoutePolylines(polys);
-      setIsEditingRoute(false);
-    } catch (error) {
-      console.error('Failed to update route:', error);
-      Alert.alert('Error', 'Failed to update route information');
-    }
-  };
-
-  const handleFindAlternatives = async (index) => {
-    const r = routeData.routes[index];
-    if (!r.route) {
-      Alert.alert('Error', 'Please enter a route with start and end locations first.');
-      return;
-    }
-    const parts = r.route.split(/ - | to |,/i);
-    if (parts.length < 2) {
-      Alert.alert('Error', 'Please enter proper formatting e.g. Colombo - Kandy');
-      return;
-    }
-    try {
-      const [startGeo, endGeo] = await Promise.all([
-        geocodeAddress(parts[0].trim()),
-        geocodeAddress(parts[parts.length - 1].trim())
-      ]);
-      let viaGeoList = null;
-      if (r.via && r.via.trim()) {
-        const viaParts = r.via.split(',').map(v => v.trim()).filter(v => v);
-        const geoResults = await Promise.all(viaParts.map(v => geocodeAddress(v)));
-        viaGeoList = geoResults.filter(g => g !== null);
-        if (viaGeoList.length === 0) viaGeoList = null;
-      }
-      if (startGeo && endGeo) {
-        const alts = await fetchRouteAlternatives(startGeo, endGeo, viaGeoList);
-        if (alts && alts.length > 0) {
-          const newRoutes = [...routeData.routes];
-          newRoutes[index].alternatives = alts;
-          newRoutes[index].selectedAlternativeIndex = 0;
-          newRoutes[index].polylineOverride = alts[0].polyline;
-          setRouteData({...routeData, routes: newRoutes});
-        } else {
-          Alert.alert('Error', 'Could not generate alternative routes.');
-        }
-      } else {
-        Alert.alert('Error', 'Could not verify locations.');
-      }
-    } catch(err) {
-      console.error(err);
-      Alert.alert('Error', 'Failed fetching alternative routes.');
-    }
+      setSystemPayments(data.systemPayments || []); setSysPayAmount(''); setSysPayImage(null);
+      Alert.alert('Success', 'System payment uploaded!');
+    } catch { Alert.alert('Error', 'Failed to upload receipt.'); }
+    finally { setSysPayUploading(false); }
   };
 
   const getTodayStr = () => {
     const d = new Date();
-    const tzOffset = d.getTimezoneOffset() * 60000;
-    return (new Date(d - tzOffset)).toISOString().split('T')[0];
+    return (new Date(d - d.getTimezoneOffset()*60000)).toISOString().split('T')[0];
   };
 
-  const renderPassenger = ({ item }) => {
-    const todayAbsence = item.absences?.find(a => a.date === getTodayStr());
-    const isAbsentToday = !!todayAbsence;
-    const upcomingAbsences = item.absences?.filter(a => a.date > getTodayStr()).sort((a,b) => a.date.localeCompare(b.date)) || [];
+  const pendingPaymentsCount = allPayments.reduce((sum, p) => sum + (p.payments?.filter(pay=>pay.status==='pending').length||0), 0);
 
-    return (
-      <View style={[styles.passengerCard, isAbsentToday && styles.passengerCardAbsent]}>
-        <View style={styles.passengerHeaderRow}>
-          <View style={styles.passengerHeader}>
-            <MaterialIcons name="person" size={24} color={isAbsentToday ? 'red' : Colors.light.primary} />
-            <Text style={[styles.passengerName, isAbsentToday && { color: 'red' }]}>{item.name}</Text>
-          </View>
-          {isAbsentToday && (
-            <View style={styles.absentBadge}>
-              <Text style={styles.absentBadgeText}>ABSENT {todayAbsence.period !== 'Both' && `(${todayAbsence.period.toUpperCase()})`}</Text>
+  // ── TAB SCREENS ───────────────────────────────────────────────
+
+  const renderOverview = () => (
+    <ScrollView contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+      {/* Stat row */}
+      <View style={s.statRow}>
+        {[
+          { label:'Passengers', value:passengers.length,       icon:'people',         color:C.blue },
+          { label:'Seats',      value:user?.totalSeats||'—',   icon:'event-seat',     color:C.amber },
+          { label:'Price/km',   value:user?.pricePerKm ? `Rs.${user.pricePerKm}` : '—', icon:'attach-money', color:C.green },
+          { label:'Pending',    value:pendingPaymentsCount,    icon:'schedule',       color:C.red },
+        ].map(c => (
+          <View key={c.label} style={s.statCard}>
+            <View style={[s.statIcon, { backgroundColor: c.color+'22' }]}>
+              <MaterialIcons name={c.icon} size={18} color={c.color} />
             </View>
-          )}
-        </View>
-        <View style={styles.passengerInfo}>
-          <MaterialIcons name="phone" size={16} color="#666" style={styles.iconSpaced} />
-          <Text style={styles.passengerText}>{item.phoneNumber}</Text>
-        </View>
-      <View style={styles.contactRow}>
-        <MaterialIcons name="email" size={16} color={Colors.light.primary} />
-        <Text style={styles.contactText}>{item.email}</Text>
+            <Text style={s.statValue}>{c.value}</Text>
+            <Text style={s.statLabel}>{c.label}</Text>
+          </View>
+        ))}
       </View>
 
-      {(item.pickupLocation || item.dropoffLocation) && (
-        <View style={styles.locationContainer}>
-          {item.pickupLocation && (
-            <View style={styles.locationRow}>
-              <MaterialIcons name="my-location" size={16} color="green" />
-              <View style={styles.locationTextContainer}>
-                <Text style={styles.locationLabel}>Pickup</Text>
-                <Text style={styles.locationText}>{item.pickupLocation?.address || item.pickupLocation}</Text>
-              </View>
-            </View>
-          )}
-          {item.dropoffLocation && (
-            <View style={styles.locationRow}>
-              <MaterialIcons name="location-pin" size={16} color="red" />
-              <View style={styles.locationTextContainer}>
-                <Text style={styles.locationLabel}>Drop-off</Text>
-                <Text style={styles.locationText}>{item.dropoffLocation?.address || item.dropoffLocation}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-      )}
-
-      {upcomingAbsences.length > 0 && (
-        <View style={styles.upcomingAbsencesContainer}>
-          <Text style={styles.upcomingAbsencesLabel}>Upcoming Absences</Text>
-          <View style={styles.upcomingAbsencesList}>
-            {upcomingAbsences.map(a => (
-              <View key={a.date} style={styles.upcomingAbsenceChip}>
-                <Text style={styles.upcomingAbsenceText}>{new Date(a.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} {a.period !== 'Both' && `(${a.period})`}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {item.extraBookings && item.extraBookings.length > 0 && (
-        <View style={{marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0'}}>
-          <Text style={{fontSize: 12, fontWeight: 'bold', color: '#666', textTransform: 'uppercase', marginBottom: 5}}>Extra Friend Bookings</Text>
-          <View style={{gap: 8}}>
-            {item.extraBookings.slice().sort((a,b) => a.date.localeCompare(b.date)).map((eb, idx) => (
-              <View key={idx} style={{backgroundColor: '#e8f5e9', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#c8e6c9'}}>
-                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
-                  <Text style={{fontWeight: 'bold', color: '#2e7d32', fontSize: 13}}>
-                    {typeof eb.date === 'string' ? new Date(eb.date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : ''} - {eb.period} Route
-                  </Text>
-                  <Text style={{backgroundColor: '#4caf50', color: 'white', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontSize: 11, fontWeight: 'bold'}}>
-                    {eb.seats} Seat(s)
-                  </Text>
-                </View>
-                {eb.pickupLocation && (
-                  <View style={{marginTop: 4, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: '#81c784'}}>
-                    <Text style={{fontSize: 11, color: '#555'}}><Text style={{fontWeight: 'bold', color: '#333'}}>From:</Text> {eb.pickupLocation.address}</Text>
-                    <Text style={{fontSize: 11, color: '#555', marginTop: 2}}><Text style={{fontWeight: 'bold', color: '#333'}}>To:</Text> {eb.dropoffLocation?.address}</Text>
-                    {eb.price && <Text style={{fontSize: 11, fontWeight: 'bold', color: '#2e7d32', marginTop: 4}}>Rs. {Math.round(eb.price)} ({eb.distanceKm?.toFixed(1)} km)</Text>}
+      {/* Today's ride summary */}
+      <Card>
+        <SectionTitle>Today's Summary</SectionTitle>
+        {user?.totalSeats && !loading ? (
+          ['Morning','Evening'].map(period => {
+            const assigned = passengers.length;
+            const absent   = passengers.filter(p => p.absences?.some(a => a.date===getTodayStr() && (a.period===period||a.period==='Both'))).length;
+            const extra    = passengers.reduce((sum, p) => sum + (p.extraBookings?.filter(eb => eb.date===getTodayStr() && (eb.period===period||eb.period==='Both')).reduce((s,eb)=>s+eb.seats,0)||0), 0);
+            const present  = assigned - absent;
+            const total    = present + extra;
+            const over     = total > user.totalSeats;
+            return (
+              <View key={period} style={[s.summaryBox, { borderColor: over ? C.red+'60' : C.border2, backgroundColor: over ? C.redDim : C.surface2 }]}>
+                <View style={s.summaryHeader}>
+                  <Text style={s.summaryPeriod}>{period==='Morning'?'🌅':'🌆'} {period}</Text>
+                  <View style={[s.miniChip, { backgroundColor: over?C.redDim:C.greenDim }]}>
+                    <Text style={[s.miniChipText, { color:over?C.red:C.green }]}>
+                      {over ? `Overbooked +${total-user.totalSeats}` : `${user.totalSeats-total} free`}
+                    </Text>
                   </View>
-                )}
+                </View>
+                <View style={s.summaryRow}><Text style={s.summaryLabel}>Active</Text><Text style={s.summaryValue}>{present}</Text></View>
+                <View style={s.summaryRow}><Text style={s.summaryLabel}>Absent</Text><Text style={[s.summaryValue,{color:C.amber}]}>{absent}</Text></View>
+                <View style={s.summaryRow}><Text style={s.summaryLabel}>Extra bookings</Text><Text style={[s.summaryValue,{color:C.blue}]}>{extra}</Text></View>
+                <View style={[s.summaryRow, s.summaryRowBorder]}>
+                  <Text style={[s.summaryLabel,{color:C.text,fontWeight:'700'}]}>Occupancy</Text>
+                  <Text style={[s.summaryValue,{color:over?C.red:C.text,fontWeight:'800'}]}>{total} / {user.totalSeats}</Text>
+                </View>
               </View>
-            ))}
+            );
+          })
+        ) : (
+          <Text style={s.emptyText}>Set total seats in Settings to see summary.</Text>
+        )}
+      </Card>
+
+      {/* Routes quick view */}
+      <Card>
+        <View style={s.cardHeaderRow}>
+          <SectionTitle>My Routes</SectionTitle>
+          <TouchableOpacity onPress={()=>setActiveTab('settings')}>
+            <Text style={s.editLink}>Edit →</Text>
+          </TouchableOpacity>
+        </View>
+        {user?.routes?.length > 0 ? user.routes.map((r,i) => (
+          <View key={i} style={s.routeChip}>
+            <MaterialIcons name="route" size={14} color={C.amber}/>
+            <Text style={s.routeChipText}>{r.route||'—'} {r.via?`via ${r.via}`:''}</Text>
+            <Text style={s.routeTime}>{r.startTime||'—'}</Text>
           </View>
+        )) : <Text style={s.emptyText}>No routes configured.</Text>}
+      </Card>
+    </ScrollView>
+  );
+
+  const renderTracking = () => (
+    <View style={{ flex:1 }}>
+      <View style={s.trackingHeader}>
+        <View style={{ flex:1 }}>
+          <Text style={s.trackingTitle}>Live Location Broadcast</Text>
+          <Text style={s.trackingSub}>{isTripActive ? 'Passengers can see your location' : 'Start trip to broadcast your position'}</Text>
+        </View>
+        <TouchableOpacity onPress={toggleTrip}
+          style={[s.tripToggleBtn, { backgroundColor: isTripActive ? C.redDim : C.greenDim, borderColor: isTripActive ? C.red : C.green }]}>
+          <View style={[s.liveDot, { backgroundColor: isTripActive ? C.red : C.green }]}/>
+          <Text style={[s.tripToggleText, { color: isTripActive ? C.red : C.green }]}>
+            {isTripActive ? 'End Trip' : 'Start Trip'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {isTripActive && currentLocation ? (
+        <MapView
+          style={{ flex:1 }}
+          region={{ latitude:currentLocation.lat, longitude:currentLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
+          mapType={Platform.OS==='android'?'none':'standard'}
+        >
+          {Platform.OS==='android' && <UrlTile urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
+          <Marker coordinate={{ latitude:currentLocation.lat, longitude:currentLocation.lng }} zIndex={1000}>
+            <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
+          </Marker>
+          {routePolylines.map((poly,i) => (
+            <Polyline key={i} coordinates={poly.points} strokeColor={C.amber} strokeWidth={4}/>
+          ))}
+          {passengers.map(p => (
+            <React.Fragment key={p._id}>
+              {p.pickupLocation?.lat && (
+                <Marker coordinate={{ latitude:p.pickupLocation.lat, longitude:p.pickupLocation.lng }} title={`${p.name}: Pickup`}>
+                  <View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+                </Marker>
+              )}
+              {p.dropoffLocation?.lat && (
+                <Marker coordinate={{ latitude:p.dropoffLocation.lat, longitude:p.dropoffLocation.lng }} title={`${p.name}: Drop-off`}>
+                  <View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={18} color="white"/></View>
+                </Marker>
+              )}
+            </React.Fragment>
+          ))}
+        </MapView>
+      ) : (
+        <View style={s.mapPlaceholder}>
+          <MaterialIcons name="navigation" size={52} color={C.textMuted}/>
+          <Text style={s.mapPlaceholderText}>
+            {isTripActive ? 'Acquiring GPS signal…' : 'Start trip to broadcast location'}
+          </Text>
+          {!isTripActive && (
+            <TouchableOpacity onPress={toggleTrip} style={[s.primaryBtn, { marginTop:20, paddingHorizontal:28 }]}>
+              <Text style={s.primaryBtnText}>Start Tracking</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>
   );
+
+  const renderPassengerCard = ({ item }) => {
+    const todayAbs = item.absences?.find(a => a.date === getTodayStr());
+    const upcoming = item.absences?.filter(a => a.date > getTodayStr()).sort((a,b)=>a.date.localeCompare(b.date)) || [];
+    return (
+      <View style={[s.passengerCard, todayAbs && { borderLeftColor:C.red }]}>
+        <View style={s.passengerHeaderRow}>
+          <View style={s.passengerLeft}>
+            <View style={s.passengerAvatar}>
+              <Text style={s.passengerAvatarText}>{item.name?.charAt(0)}</Text>
+            </View>
+            <View>
+              <Text style={[s.passengerName, todayAbs && { color:C.red }]}>{item.name}</Text>
+              <Text style={s.passengerSub}>{item.phoneNumber}</Text>
+            </View>
+          </View>
+          {todayAbs && (
+            <View style={[s.miniChip,{backgroundColor:C.redDim}]}>
+              <Text style={[s.miniChipText,{color:C.red}]}>ABSENT{todayAbs.period!=='Both'?` (${todayAbs.period})`:''}</Text>
+            </View>
+          )}
+        </View>
+
+        <Text style={s.passengerEmail}>{item.email}</Text>
+
+        {(item.pickupLocation || item.dropoffLocation) && (
+          <View style={s.locationBlock}>
+            {item.pickupLocation && (
+              <View style={s.locationRow}>
+                <MaterialIcons name="my-location" size={13} color={C.green}/>
+                <Text style={s.locationText}>{item.pickupLocation?.address || item.pickupLocation}</Text>
+              </View>
+            )}
+            {item.dropoffLocation && (
+              <View style={s.locationRow}>
+                <MaterialIcons name="location-pin" size={13} color={C.red}/>
+                <Text style={s.locationText}>{item.dropoffLocation?.address || item.dropoffLocation}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {upcoming.length > 0 && (
+          <View style={s.absenceBlock}>
+            <Text style={s.absenceBlockLabel}>UPCOMING ABSENCES</Text>
+            <View style={{ flexDirection:'row', flexWrap:'wrap', gap:4 }}>
+              {upcoming.map(a => (
+                <View key={a.date} style={[s.miniChip,{backgroundColor:C.orangeDim}]}>
+                  <Text style={[s.miniChipText,{color:C.orange}]}>
+                    {new Date(a.date).toLocaleDateString(undefined,{month:'short',day:'numeric'})} {a.period!=='Both'?`(${a.period})`:''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {item.extraBookings?.length > 0 && (
+          <View style={s.absenceBlock}>
+            <Text style={s.absenceBlockLabel}>EXTRA BOOKINGS</Text>
+            {item.extraBookings.sort((a,b)=>a.date.localeCompare(b.date)).map((eb,idx) => (
+              <View key={idx} style={s.extraBookingRow}>
+                <View style={s.extraBookingTop}>
+                  <Text style={s.extraBookingDate}>
+                    {new Date(eb.date).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {eb.period}
+                  </Text>
+                  <View style={[s.miniChip,{backgroundColor:C.greenDim}]}>
+                    <Text style={[s.miniChipText,{color:C.green}]}>{eb.seats} seat{eb.seats>1?'s':''}</Text>
+                  </View>
+                </View>
+                {eb.pickupLocation && (
+                  <View style={s.extraLocationLine}>
+                    <Text style={s.extraLocationText}>From: {eb.pickupLocation.address}</Text>
+                    <Text style={s.extraLocationText}>To: {eb.dropoffLocation?.address}</Text>
+                    {eb.price && <Text style={[s.extraLocationText,{color:C.green,fontWeight:'700'}]}>Rs. {Math.round(eb.price)} ({eb.distanceKm?.toFixed(1)} km)</Text>}
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Driver Dashboard</Text>
-          <TouchableOpacity onPress={handleLogout}>
-            <MaterialIcons name="logout" size={24} color="white" />
-          </TouchableOpacity>
+  const renderPassengers = () => (
+    <View style={{ flex:1 }}>
+      <View style={s.listHeader}>
+        <Text style={s.listHeaderTitle}>Passengers</Text>
+        <View style={[s.miniChip,{backgroundColor:C.amberDim}]}>
+          <Text style={[s.miniChipText,{color:C.amber}]}>{passengers.length}</Text>
         </View>
-        <Text style={styles.welcomeText}>Welcome, {user?.name || 'Driver'}</Text>
       </View>
-
-      <FlatList
-        style={{ flex: 1 }}
-        data={passengers}
-        keyExtractor={(item) => item._id}
-        contentContainerStyle={styles.content}
-        ListHeaderComponent={
-          <>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Vehicle Details</Text>
-              <View style={styles.infoRow}>
-                <FontAwesome5 name="hashtag" size={18} color={Colors.light.primary} />
-                <Text style={styles.infoText}>{user?.vehicleNumber || 'N/A'}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <MaterialIcons name="directions-car" size={20} color={Colors.light.primary} />
-                <Text style={styles.infoText}>{user?.vehicleType || 'N/A'}</Text>
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitleNoMargin}>Route Information</Text>
-                {!isEditingRoute && (
-                  <TouchableOpacity onPress={() => setIsEditingRoute(true)}>
-                    <Text style={styles.editText}>Edit</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {isEditingRoute ? (
-                <View style={styles.editSection}>
-                  {routeData.routes.map((r, index) => (
-                    <View key={index} style={styles.routeEditCard}>
-                      <TouchableOpacity 
-                        style={styles.removeRouteBtn}
-                        onPress={() => {
-                          const newRoutes = [...routeData.routes];
-                          newRoutes.splice(index, 1);
-                          setRouteData({...routeData, routes: newRoutes});
-                        }}
-                      >
-                        <MaterialIcons name="close" size={20} color="red" />
-                      </TouchableOpacity>
-                      <Text style={styles.inputLabel}>Route (e.g., Colombo - Kandy)</Text>
-                      <TextInput style={styles.input} value={r.route || ''} onChangeText={t => {
-                          const newRoutes = [...routeData.routes];
-                          newRoutes[index].route = t;
-                          setRouteData({...routeData, routes: newRoutes});
-                      }} placeholder="Enter route" />
-                      
-                      <Text style={styles.inputLabel}>Via (Optional Town/Highway)</Text>
-                      <View style={{flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 15}}>
-                        <TextInput style={[styles.input, {flex: 1, marginBottom: 0}]} value={r.via || ''} onChangeText={t => {
-                            const newRoutes = [...routeData.routes];
-                            newRoutes[index].via = t;
-                            setRouteData({...routeData, routes: newRoutes});
-                        }} placeholder="e.g. Kurunegala, Dambulla" />
-                        <TouchableOpacity style={[styles.saveRouteBtn, {marginBottom: 0, paddingVertical: 12}]} onPress={() => handleFindAlternatives(index)}>
-                          <Text style={styles.saveRouteBtnText}>Find Paths</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {r.alternatives && r.alternatives.length > 0 && (
-                        <View style={{ backgroundColor: '#eff6ff', padding: 10, borderRadius: 8, marginBottom: 15, borderColor: '#bfdbfe', borderWidth: 1 }}>
-                          <Text style={{ fontWeight: 'bold', color: '#1e3a8a', marginBottom: 5 }}>Select Preferred Path:</Text>
-                          {r.alternatives.map((alt, i) => (
-                            <TouchableOpacity 
-                              key={i} 
-                              style={{ padding: 10, backgroundColor: (r.selectedAlternativeIndex === i) ? '#bfdbfe' : 'transparent', borderRadius: 5, flexDirection: 'row', justifyContent: 'space-between' }}
-                              onPress={() => {
-                                const newRoutes = [...routeData.routes];
-                                newRoutes[index].selectedAlternativeIndex = i;
-                                newRoutes[index].polylineOverride = newRoutes[index].alternatives[i].polyline;
-                                setRouteData({...routeData, routes: newRoutes});
-                              }}
-                            >
-                              <Text style={{ fontWeight: (r.selectedAlternativeIndex === i) ? 'bold' : 'normal', color: '#1e40af' }}>
-                                Path {i + 1} {i === 0 ? '(Fastest)' : ''}
-                              </Text>
-                              <Text style={{ fontSize: 12, color: '#3b82f6' }}>
-                                {(alt.distance / 1000).toFixed(1)}km, {Math.round(alt.duration / 60)}m
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      )}
-                      
-                      <Text style={styles.inputLabel}>Start Time (e.g., 08:00 AM)</Text>
-                      <TextInput style={styles.input} value={r.startTime} onChangeText={t => {
-                          const newRoutes = [...routeData.routes];
-                          newRoutes[index].startTime = t;
-                          setRouteData({...routeData, routes: newRoutes});
-                      }} placeholder="Enter start time" />
-                    </View>
-                  ))}
-                  
-                  <TouchableOpacity 
-                    style={styles.addRouteBtn}
-                    onPress={() => setRouteData({...routeData, routes: [...routeData.routes, { route: '', via: '', startTime: '' }]})}
-                  >
-                    <Text style={styles.addRouteBtnText}>+ Add Route</Text>
-                  </TouchableOpacity>
-
-                  <Text style={[styles.inputLabel, {marginTop: 15}]}>Total Seats</Text>
-                  <TextInput style={styles.input} value={routeData.totalSeats} onChangeText={t => setRouteData({...routeData, totalSeats: t})} keyboardType="numeric" placeholder="e.g. 14" />
-                  
-                  <Text style={styles.inputLabel}>Price per Km (Rs.)</Text>
-                  <TextInput style={styles.input} value={routeData.pricePerKm} onChangeText={t => setRouteData({...routeData, pricePerKm: t})} keyboardType="numeric" placeholder="e.g. 50" />
-                  
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditingRoute(false)}>
-                      <Text style={styles.cancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.saveBtn} onPress={handleSaveRoute}>
-                      <Text style={styles.saveBtnText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.viewSection}>
-                  {(user?.routes && user.routes.length > 0) ? user.routes.map((r, index) => (
-                    <View key={index} style={styles.routeViewCard}>
-                      <View style={styles.infoRow}>
-                        <MaterialIcons name="map" size={20} color={Colors.light.primary} />
-                        <Text style={styles.infoText}>{r.route || 'Not set'} {r.via ? `(via ${r.via})` : ''}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <MaterialIcons name="access-time" size={20} color={Colors.light.primary} />
-                        <Text style={styles.infoText}>{r.startTime || 'Not set'}</Text>
-                      </View>
-                    </View>
-                  )) : (
-                    <Text style={styles.emptyText}>No routes set</Text>
-                  )}
-                  <View style={[styles.infoRow, {marginTop: 10, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10}]}>
-                    <Text style={[styles.infoText, {fontWeight: 'bold'}]}>{user?.totalSeats ? `${user.totalSeats} seats total` : 'Total seats not set'}</Text>
-                  </View>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitleNoMargin}>Live Trip Tracking</Text>
-                <TouchableOpacity 
-                  style={[styles.startTripBtn, isTripActive ? styles.endTripBtn : {}]}
-                  onPress={toggleTrip}
-                >
-                  <Text style={styles.startTripBtnText}>{isTripActive ? 'End Trip' : 'Start Trip'}</Text>
-                </TouchableOpacity>
-              </View>
-
-              {isTripActive ? (
-                <View style={styles.mapContainer}>
-                  {currentLocation ? (
-                    <MapView 
-                      style={styles.map} 
-                      region={{
-                        latitude: currentLocation.lat,
-                        longitude: currentLocation.lng,
-                        latitudeDelta: 0.01,
-                        longitudeDelta: 0.01
-                      }}
-                      mapType={Platform.OS === "android" ? "none" : "standard"}
-                    >
-                      {Platform.OS === 'android' && (
-                        <UrlTile
-                          urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                          maximumZ={19}
-                          flipY={false}
-                        />
-                      )}
-                      {/* Driver live position */}
-                      <Marker coordinate={{latitude: currentLocation.lat, longitude: currentLocation.lng}} zIndex={1000}>
-                        <View style={{ backgroundColor: '#f59e0b', padding: 6, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 4, elevation: 6 }}>
-                          <FontAwesome5 name="bus" size={16} color="white" />
-                        </View>
-                      </Marker>
-                      {/* Route polylines */}
-                      {routePolylines.map((poly, i) => (
-                        <Polyline
-                          key={i}
-                          coordinates={poly.points}
-                          strokeColor="#3B82F6"
-                          strokeWidth={3}
-                        />
-                      ))}
-                      {/* Passenger pickup & dropoff markers */}
-                      {passengers.map(p => (
-                        <React.Fragment key={p._id}>
-                          {p.pickupLocation?.lat && (
-                            <Marker
-                              coordinate={{ latitude: p.pickupLocation.lat, longitude: p.pickupLocation.lng }}
-                              title={`${p.name}: Pickup`}
-                            >
-                              <View style={{ backgroundColor: '#10b981', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 5 }}>
-                                <MaterialIcons name="person-pin-circle" size={20} color="white" />
-                              </View>
-                            </Marker>
-                          )}
-                          {p.dropoffLocation?.lat && (
-                            <Marker
-                              coordinate={{ latitude: p.dropoffLocation.lat, longitude: p.dropoffLocation.lng }}
-                              title={`${p.name}: Drop-off`}
-                            >
-                              <View style={{ backgroundColor: '#ef4444', padding: 5, borderRadius: 20, borderWidth: 2, borderColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 5 }}>
-                                <MaterialIcons name="location-on" size={20} color="white" />
-                              </View>
-                            </Marker>
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </MapView>
-                  ) : (
-                    <View style={styles.mapLoading}>
-                      <ActivityIndicator size="large" color={Colors.light.primary} />
-                      <Text style={styles.mapLoadingText}>Acquiring GPS...</Text>
-                    </View>
-                  )}
-                </View>
-              ) : (
-                <View style={styles.mapInactive}>
-                  <Text style={styles.mapInactiveText}>Trip is currently inactive.</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Bank Details section */}
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitleNoMargin}>💳 Bank Details</Text>
-                {!isEditingBank && (
-                  <TouchableOpacity onPress={() => setIsEditingBank(true)}>
-                    <Text style={styles.editText}>Edit</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {isEditingBank ? (
-                <View style={styles.editSection}>
-                  <Text style={styles.inputLabel}>Bank Name</Text>
-                  <TextInput style={styles.input} value={bankDetails.bankName} onChangeText={t => setBankDetails({...bankDetails, bankName: t})} placeholder="e.g. Commercial Bank" />
-                  
-                  <Text style={styles.inputLabel}>Account Name</Text>
-                  <TextInput style={styles.input} value={bankDetails.accountName} onChangeText={t => setBankDetails({...bankDetails, accountName: t})} placeholder="e.g. John Doe" />
-                  
-                  <Text style={styles.inputLabel}>Account Number</Text>
-                  <TextInput style={styles.input} value={bankDetails.accountNumber} onChangeText={t => setBankDetails({...bankDetails, accountNumber: t})} placeholder="e.g. 1234567890" keyboardType="numeric" />
-                  
-                  <Text style={styles.inputLabel}>Branch Name</Text>
-                  <TextInput style={styles.input} value={bankDetails.branchName} onChangeText={t => setBankDetails({...bankDetails, branchName: t})} placeholder="e.g. Colombo 03" />
-
-                  <View style={styles.btnRow}>
-                    <TouchableOpacity style={[styles.saveRouteBtn, {backgroundColor: '#ccc'}]} onPress={() => setIsEditingBank(false)}>
-                      <Text style={styles.saveRouteBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.saveRouteBtn} onPress={handleSaveBankDetails}>
-                      <Text style={styles.saveRouteBtnText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.viewSection}>
-                  {user?.bankDetails?.accountNumber ? (
-                    <View style={{backgroundColor: '#f8f9fa', padding: 15, borderRadius: 10, borderColor: '#eee', borderWidth: 1}}>
-                      <Text style={{fontWeight: 'bold', fontSize: 16, color: '#333'}}>{user.bankDetails.bankName || 'Unknown Bank'}</Text>
-                      <Text style={{fontSize: 16, color: '#555', marginTop: 4, letterSpacing: 1}}>{user.bankDetails.accountNumber}</Text>
-                      <Text style={{fontSize: 14, color: '#666', marginTop: 8}}>Acc Name: {user.bankDetails.accountName || '-'}</Text>
-                      <Text style={{fontSize: 14, color: '#666', marginTop: 2}}>Branch: {user.bankDetails.branchName || '-'}</Text>
-                    </View>
-                  ) : (
-                    <Text style={{color: '#999', fontStyle: 'italic', textAlign: 'center', padding: 10}}>No bank details provided. Add them to receive payments.</Text>
-                  )}
-                </View>
-              )}
-            </View>
-
-            {user?.totalSeats && !loading && (
-              <View style={styles.card}>
-                <View style={styles.cardHeaderRow}>
-                  <Text style={styles.cardTitleNoMargin}>Today's Ride Summary</Text>
-                  <View style={styles.dateBadge}>
-                    <Text style={styles.dateBadgeText}>{getTodayStr()}</Text>
-                  </View>
-                </View>
-                
-                {['Morning', 'Evening'].map(period => {
-                  const assigned = passengers.length;
-                  const absent = passengers.filter(p => p.absences?.some(a => a.date === getTodayStr() && (a.period === period || a.period === 'Both'))).length;
-                  const extra = passengers.reduce((sum, p) => sum + (p.extraBookings?.filter(eb => eb.date === getTodayStr() && (eb.period === period || eb.period === 'Both')).reduce((s, eb) => s + eb.seats, 0) || 0), 0);
-                  const present = assigned - absent;
-                  const free = user.totalSeats - present - extra;
-                  const totalOccupied = present + extra;
-                  const overbooked = totalOccupied > user.totalSeats;
-
-                  return (
-                    <View key={period} style={[styles.summaryBox, overbooked ? styles.summaryBoxRed : styles.summaryBoxGray]}>
-                      <View style={styles.summaryHeader}>
-                        <Text style={styles.summaryPeriodTitle}>{period === 'Morning' ? '🌅' : '🌆'} {period} Route</Text>
-                        <View style={[styles.statusBadge, overbooked ? styles.statusBadgeRed : styles.statusBadgeGreen]}>
-                          <Text style={[styles.statusBadgeText, overbooked ? styles.statusBadgeTextRed : styles.statusBadgeTextGreen]}>
-                            {overbooked ? `OVERBOOKED (${Math.abs(free)})` : `${free} SEATS FREE`}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      <View style={styles.summaryStatRow}>
-                        <Text style={styles.summaryStatLabel}>Active Passengers</Text>
-                        <Text style={styles.summaryStatValue}>{present} <Text style={styles.summaryStatDetail}>({assigned} tot, {absent} abs)</Text></Text>
-                      </View>
-                      <View style={styles.summaryStatRow}>
-                        <Text style={styles.summaryStatLabel}>Extra Friend Bookings</Text>
-                        <Text style={[styles.summaryStatValue, {color: Colors.light.primary}]}>{extra}</Text>
-                      </View>
-                      <View style={[styles.summaryStatRow, styles.summaryStatRowTop]}>
-                        <Text style={[styles.summaryStatLabel, {fontWeight: 'bold', color: '#333'}]}>Total Occupancy</Text>
-                        <Text style={[styles.summaryStatValue, {fontWeight: 'bold', color: overbooked ? '#d32f2f' : '#333'}]}>{totalOccupied} / {user.totalSeats}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-            <View style={styles.sectionHeaderContainer}>
-              <Text style={styles.sectionTitle}>My Passengers</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{passengers.length}</Text>
-              </View>
-            </View>
-            
-            {loading && <ActivityIndicator size="large" color={Colors.light.primary} style={{ marginTop: 20 }} />}
-            {!loading && passengers.length === 0 && (
-              <Text style={styles.emptyText}>No passengers have selected your vehicle yet.</Text>
-            )}
-          </>
-        }
-        renderItem={renderPassenger}
-        ListFooterComponent={
-          <>
-            {/* ── Payment Approvals ── */}
-    <View style={[styles.card, {marginHorizontal: 20, marginBottom: 40}]}>
-      <Text style={styles.cardTitle}>💳 Payment Approvals</Text>
-      <Text style={{fontSize: 12, color: '#888', marginBottom: 12}}>Review monthly payment receipts from your passengers.</Text>
-
-      {allPayments.length === 0 && (
-        <Text style={{color: '#bbb', fontStyle: 'italic', textAlign: 'center', paddingVertical: 12}}>No payment submissions yet.</Text>
+      {loading ? (
+        <View style={s.mapPlaceholder}>
+          <ActivityIndicator size="large" color={C.amber}/>
+        </View>
+      ) : passengers.length === 0 ? (
+        <View style={s.mapPlaceholder}>
+          <MaterialIcons name="people" size={48} color={C.textMuted}/>
+          <Text style={s.mapPlaceholderText}>No passengers have selected your vehicle yet.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={passengers}
+          keyExtractor={item => item._id}
+          renderItem={renderPassengerCard}
+          contentContainerStyle={{ padding:14, paddingBottom:20 }}
+          showsVerticalScrollIndicator={false}
+        />
       )}
+    </View>
+  );
 
-      {allPayments.map(passenger => (
-        passenger.payments && passenger.payments.length > 0 && (
-          <View key={passenger.passengerId} style={{marginBottom: 16}}>
-            <Text style={{fontWeight: 'bold', fontSize: 14, color: '#333', marginBottom: 8}}>
-              {passenger.name} <Text style={{color: '#888', fontWeight: 'normal', fontSize: 12}}>({passenger.email})</Text>
-            </Text>
-            {passenger.payments.map((p) => (
-              <View key={p._id} style={{borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 12, marginBottom: 10, backgroundColor: '#fafafa'}}>
-                <View style={{flexDirection: 'row', gap: 10}}>
-                  {p.imageUrl && (
-                    <Image source={{ uri: p.imageUrl }} style={{ width: 64, height: 64, borderRadius: 8 }} />
-                  )}
-                  <View style={{flex: 1}}>
-                    <Text style={{fontWeight: 'bold', fontSize: 13}}>{p.month}  •  LKR {p.amount?.toLocaleString()}</Text>
-                    <Text style={{fontSize: 11, color: '#888'}}>{p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : ''}</Text>
-                    <View style={{paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, alignSelf: 'flex-start', marginTop: 4,
-                      backgroundColor: p.status === 'approved' ? '#e8f5e9' : p.status === 'rejected' ? '#ffebee' : '#fff8e1'}}>
-                      <Text style={{fontSize: 9, fontWeight: 'bold',
-                        color: p.status === 'approved' ? '#2e7d32' : p.status === 'rejected' ? '#c62828' : '#e65100'}}>
-                        {p.status === 'approved' ? '✅ Approved' : p.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
-                      </Text>
+  const renderPayments = () => (
+    <ScrollView contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+
+      {/* Passenger payment approvals */}
+      <Card>
+        <SectionTitle>Passenger Approvals</SectionTitle>
+        <Text style={s.cardDesc}>Review monthly payments submitted by your passengers.</Text>
+
+        {allPayments.length === 0 && <Text style={s.emptyText}>No payment submissions yet.</Text>}
+
+        {allPayments.map(passenger => passenger.payments?.length > 0 && (
+          <View key={passenger.passengerId} style={{ marginBottom:16 }}>
+            <View style={s.paymentPassengerRow}>
+              <View style={[s.passengerAvatar,{width:30,height:30,borderRadius:15}]}>
+                <Text style={[s.passengerAvatarText,{fontSize:13}]}>{passenger.name?.charAt(0)}</Text>
+              </View>
+              <View style={{ marginLeft:8 }}>
+                <Text style={s.paymentPassengerName}>{passenger.name}</Text>
+                <Text style={s.paymentPassengerEmail}>{passenger.email}</Text>
+              </View>
+            </View>
+            {passenger.payments.map(p => (
+              <View key={p._id} style={s.paymentCard}>
+                <View style={{ flexDirection:'row', gap:10 }}>
+                  {p.imageUrl && <Image source={{ uri:p.imageUrl }} style={s.paymentThumb}/>}
+                  <View style={{ flex:1 }}>
+                    <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
+                      <Text style={s.paymentTitle}>{p.month} · LKR {p.amount?.toLocaleString()}</Text>
+                      <StatusBadge status={p.status}/>
                     </View>
+                    <Text style={s.paymentDate}>{p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : ''}</Text>
+                    {p.note && <Text style={s.paymentNote}>Note: {p.note}</Text>}
                   </View>
                 </View>
                 {p.status === 'pending' && (
-                  <View style={{marginTop: 10}}>
+                  <View style={{ marginTop:10 }}>
                     <TextInput
-                      style={{borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 8, fontSize: 12, marginBottom: 8, backgroundColor: 'white'}}
-                      placeholder="Optional note for passenger..."
-                      value={reviewNotes[p._id] || ''}
-                      onChangeText={t => setReviewNotes(n => ({...n, [p._id]: t}))}
+                      style={[s.input,{marginBottom:8}]}
+                      placeholder="Optional note for passenger…"
+                      placeholderTextColor={C.textMuted}
+                      value={reviewNotes[p._id]||''}
+                      onChangeText={t => setReviewNotes(n=>({...n,[p._id]:t}))}
                     />
-                    <View style={{flexDirection: 'row', gap: 10}}>
-                      <TouchableOpacity
-                        style={{flex: 1, backgroundColor: '#4caf50', padding: 10, borderRadius: 8, alignItems: 'center'}}
-                        onPress={() => reviewPayment(passenger.passengerId, p._id, 'approved')}
-                      >
-                        <Text style={{color: 'white', fontWeight: 'bold', fontSize: 13}}>✅ Approve</Text>
+                    <View style={{ flexDirection:'row', gap:8 }}>
+                      <TouchableOpacity onPress={()=>reviewPayment(passenger.passengerId,p._id,'approved')}
+                        style={[s.reviewBtn, { backgroundColor:C.greenDim, borderColor:C.green+'50' }]}>
+                        <Text style={[s.reviewBtnText,{color:C.green}]}>✓ Approve</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={{flex: 1, backgroundColor: '#ffebee', padding: 10, borderRadius: 8, alignItems: 'center'}}
-                        onPress={() => reviewPayment(passenger.passengerId, p._id, 'rejected')}
-                      >
-                        <Text style={{color: '#c62828', fontWeight: 'bold', fontSize: 13}}>❌ Reject</Text>
+                      <TouchableOpacity onPress={()=>reviewPayment(passenger.passengerId,p._id,'rejected')}
+                        style={[s.reviewBtn, { backgroundColor:C.redDim, borderColor:C.red+'50' }]}>
+                        <Text style={[s.reviewBtnText,{color:C.red}]}>✕ Reject</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 )}
-                {p.note ? <Text style={{fontSize: 11, color: '#666', fontStyle: 'italic', marginTop: 6}}>Note: {p.note}</Text> : null}
               </View>
             ))}
           </View>
-        )
-      ))}
-    </View>
+        ))}
+      </Card>
 
-    {/* ── System Fee Payments (to Admin) ── */}
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>🏦 System Fee Payments</Text>
-      <Text style={{fontSize: 12, color: '#888', marginBottom: 12}}>Upload your monthly system fee payment receipt for the admin.</Text>
+      {/* System fee payment */}
+      <Card>
+        <SectionTitle>System Fee Payment</SectionTitle>
+        <Text style={s.cardDesc}>Upload your monthly system fee receipt for admin review.</Text>
 
-      <Text style={styles.inputLabel}>Payment Month (YYYY-MM)</Text>
-      <TextInput
-        style={styles.input}
-        value={sysPayMonth}
-        onChangeText={setSysPayMonth}
-        placeholder="2026-03"
-        placeholderTextColor="#aaa"
-      />
-
-      <Text style={[styles.inputLabel, {marginTop: 10}]}>Amount (LKR)</Text>
-      <TextInput
-        style={styles.input}
-        value={sysPayAmount}
-        onChangeText={setSysPayAmount}
-        placeholder="e.g. 5000"
-        placeholderTextColor="#aaa"
-        keyboardType="numeric"
-      />
-
-      <Text style={[styles.inputLabel, {marginTop: 10}]}>Receipt Photo / Screenshot</Text>
-      <TouchableOpacity 
-        style={{backgroundColor: '#e3f2fd', padding: 12, borderRadius: 8, alignItems: 'center', borderColor: '#bbdefb', borderWidth: 1, marginBottom: 15}}
-        onPress={pickSystemPaymentImage}
-      >
-        <Text style={{color: '#1565c0', fontWeight: 'bold'}}>
-          {sysPayImage ? '📸 Change Photo' : '📸 Select Photo'}
-        </Text>
-      </TouchableOpacity>
-
-      {sysPayImage && (
-        <Image source={{uri: sysPayImage.uri}} style={{width: '100%', height: 200, borderRadius: 10, marginBottom: 15}} resizeMode="cover" />
-      )}
-
-      <TouchableOpacity 
-        style={[styles.saveRouteBtn, (sysPayUploading || !sysPayAmount || !sysPayImage) && {opacity: 0.6}]}
-        onPress={uploadSystemPayment}
-        disabled={sysPayUploading || !sysPayAmount || !sysPayImage}
-      >
-        <Text style={styles.saveRouteBtnText}>
-          {sysPayUploading ? 'Uploading...' : '📤 Submit System Payment'}
-        </Text>
-      </TouchableOpacity>
-
-      {systemPayments.length > 0 && (
-        <View style={{marginTop: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#eee'}}>
-          <Text style={styles.inputLabel}>My Submission History</Text>
-          {systemPayments.map(p => (
-            <View key={p._id} style={{backgroundColor: '#f9f9f9', padding: 12, borderRadius: 8, marginBottom: 10, borderColor: '#eee', borderWidth: 1}}>
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6}}>
-                <Text style={{fontWeight: 'bold', color: '#333'}}>{p.month}</Text>
-                <Text style={{fontWeight: 'bold', color: Colors.light.primary}}>LKR {p.amount}</Text>
-              </View>
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-                <Text style={{fontSize: 11, color: '#666'}}>
-                  {p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}
-                </Text>
-                <Text style={{
-                  fontSize: 10, fontWeight: 'bold', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, textTransform: 'uppercase',
-                  backgroundColor: p.status === 'approved' ? '#d4edda' : p.status === 'rejected' ? '#f8d7da' : '#fff3cd',
-                  color: p.status === 'approved' ? '#155724' : p.status === 'rejected' ? '#721c24' : '#856404'
-                }}>
-                  {p.status}
-                </Text>
-              </View>
-              {p.note ? <Text style={{fontSize: 11, color: '#666', fontStyle: 'italic', marginTop: 6}}>Admin Note: {p.note}</Text> : null}
-            </View>
-          ))}
+        <View style={s.twoCol}>
+          <View style={{ flex:1, marginRight:6 }}>
+            <StyledInput label="Month (YYYY-MM)" placeholder="2026-03" value={sysPayMonth} onChangeText={setSysPayMonth}/>
+          </View>
+          <View style={{ flex:1, marginLeft:6 }}>
+            <StyledInput label="Amount (LKR)" placeholder="5000" value={sysPayAmount} onChangeText={setSysPayAmount} keyboardType="numeric"/>
+          </View>
         </View>
-      )}
-    </View>
 
+        <TouchableOpacity onPress={pickSystemPaymentImage} style={s.receiptPicker}>
+          {sysPayImage
+            ? <Image source={{ uri:sysPayImage.uri }} style={s.receiptPreview}/>
+            : <>
+                <MaterialIcons name="cloud-upload" size={28} color={C.textMuted}/>
+                <Text style={s.receiptPickerText}>{sysPayImage ? '📸 Change Photo' : 'Tap to pick receipt'}</Text>
+              </>}
+        </TouchableOpacity>
+
+        <PrimaryBtn label="Submit Payment" onPress={uploadSystemPayment} disabled={sysPayUploading} loading={sysPayUploading}/>
+
+        {systemPayments.length > 0 && (
+          <View style={{ marginTop:18, paddingTop:14, borderTopWidth:1, borderTopColor:C.border2 }}>
+            <Text style={[s.inputLabel, { marginBottom:10 }]}>My History</Text>
+            {systemPayments.map(p => (
+              <View key={p._id} style={s.sysPayRow}>
+                {p.imageUrl && <Image source={{ uri:p.imageUrl }} style={s.paymentThumb}/>}
+                <View style={{ flex:1, marginLeft: p.imageUrl ? 10 : 0 }}>
+                  <Text style={s.paymentTitle}>{p.month} · LKR {p.amount?.toLocaleString()}</Text>
+                  <Text style={s.paymentDate}>{p.submittedAt ? new Date(p.submittedAt).toLocaleDateString() : 'N/A'}</Text>
+                  {p.note && <Text style={s.paymentNote}>Admin: {p.note}</Text>}
+                </View>
+                <StatusBadge status={p.status}/>
+              </View>
+            ))}
+          </View>
+        )}
+      </Card>
+    </ScrollView>
+  );
+
+  const renderSettings = () => (
+    <ScrollView contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+
+      {/* Vehicle info */}
+      <Card>
+        <SectionTitle>Vehicle Details</SectionTitle>
+        {[
+          { icon:'person',         label:'Name',         value:user?.name },
+          { icon:'phone',          label:'Phone',        value:user?.phoneNumber },
+          { icon:'email',          label:'Email',        value:user?.email },
+          { icon:'tag',            label:'Plate Number', value:user?.vehicleNumber },
+          { icon:'directions-car', label:'Vehicle Type', value:user?.vehicleType },
+        ].map(f => (
+          <View key={f.label} style={s.infoItem}>
+            <MaterialIcons name={f.icon} size={16} color={C.textMuted}/>
+            <View style={{ marginLeft:10 }}>
+              <Text style={s.infoItemLabel}>{f.label}</Text>
+              <Text style={s.infoItemValue}>{f.value||'—'}</Text>
+            </View>
+          </View>
+        ))}
+      </Card>
+
+      {/* Route configuration */}
+      <Card>
+        <View style={s.cardHeaderRow}>
+          <SectionTitle>Route Configuration</SectionTitle>
+          {!isEditingRoute && <TouchableOpacity onPress={()=>setIsEditingRoute(true)}><Text style={s.editLink}>Edit</Text></TouchableOpacity>}
+        </View>
+
+        {isEditingRoute ? (
+          <>
+            {routeData.routes.map((r, index) => (
+              <View key={index} style={s.routeEditCard}>
+                <TouchableOpacity onPress={()=>{const nr=[...routeData.routes];nr.splice(index,1);setRouteData({...routeData,routes:nr});}} style={s.removeRouteBtn}>
+                  <MaterialIcons name="close" size={16} color={C.red}/>
+                </TouchableOpacity>
+
+                <StyledInput label="Route (e.g. Colombo - Kandy)" placeholder="Start - End"
+                  value={r.route||''} onChangeText={t=>{const nr=[...routeData.routes];nr[index].route=t;setRouteData({...routeData,routes:nr});}}/>
+
+                <Text style={s.inputLabel}>Via (optional)</Text>
+                <View style={{ flexDirection:'row', gap:8, marginBottom:14 }}>
+                  <TextInput style={[s.input,{flex:1,marginBottom:0}]} placeholderTextColor={C.textMuted}
+                    value={r.via||''} onChangeText={t=>{const nr=[...routeData.routes];nr[index].via=t;setRouteData({...routeData,routes:nr});}}
+                    placeholder="e.g. Kurunegala"/>
+                  <TouchableOpacity onPress={()=>handleFindAlternatives(index)}
+                    style={[s.primaryBtn,{paddingHorizontal:12,marginTop:0}]}>
+                    <Text style={[s.primaryBtnText,{fontSize:12}]}>Find</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {r.alternatives?.length > 0 && (
+                  <View style={s.altBox}>
+                    <Text style={s.altBoxTitle}>Select Path</Text>
+                    {r.alternatives.map((alt,i) => (
+                      <TouchableOpacity key={i} onPress={()=>{const nr=[...routeData.routes];nr[index].selectedAlternativeIndex=i;nr[index].polylineOverride=alt.polyline;setRouteData({...routeData,routes:nr});}}
+                        style={[s.altRow, r.selectedAlternativeIndex===i && s.altRowActive]}>
+                        <Text style={[s.altRowText, r.selectedAlternativeIndex===i && {color:C.blue,fontWeight:'700'}]}>
+                          Path {i+1} {i===0?'(Fastest)':''}
+                        </Text>
+                        <Text style={s.altRowSub}>{(alt.distance/1000).toFixed(1)}km · {Math.round(alt.duration/60)}m</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                <StyledInput label="Start Time" placeholder="e.g. 08:00 AM"
+                  value={r.startTime||''} onChangeText={t=>{const nr=[...routeData.routes];nr[index].startTime=t;setRouteData({...routeData,routes:nr});}}/>
+              </View>
+            ))}
+
+            <TouchableOpacity onPress={()=>setRouteData({...routeData,routes:[...routeData.routes,{route:'',via:'',startTime:''}]})} style={s.addRouteBtn}>
+              <MaterialIcons name="add" size={18} color={C.amber}/>
+              <Text style={s.addRouteBtnText}>Add Route</Text>
+            </TouchableOpacity>
+
+            <View style={s.twoCol}>
+              <View style={{flex:1,marginRight:6}}>
+                <StyledInput label="Total Seats" placeholder="e.g. 14" keyboardType="numeric" value={routeData.totalSeats} onChangeText={t=>setRouteData({...routeData,totalSeats:t})}/>
+              </View>
+              <View style={{flex:1,marginLeft:6}}>
+                <StyledInput label="Price per Km (Rs.)" placeholder="e.g. 50" keyboardType="numeric" value={routeData.pricePerKm} onChangeText={t=>setRouteData({...routeData,pricePerKm:t})}/>
+              </View>
+            </View>
+
+            <View style={s.actionRow}>
+              <GhostBtn label="Cancel" onPress={()=>setIsEditingRoute(false)}/>
+              <PrimaryBtn label="Save Routes" onPress={handleSaveRoute}/>
+            </View>
           </>
-        }
-      />
-    </View>
+        ) : (
+          <>
+            {user?.routes?.length > 0 ? user.routes.map((r,i) => (
+              <View key={i} style={s.routeChip}>
+                <MaterialIcons name="route" size={14} color={C.amber}/>
+                <Text style={s.routeChipText}>{r.route||'—'} {r.via?`via ${r.via}`:''}</Text>
+                <Text style={s.routeTime}>{r.startTime||'—'}</Text>
+              </View>
+            )) : <Text style={s.emptyText}>No routes set.</Text>}
+            <View style={s.twoStatRow}>
+              <View style={s.twoStatCard}><Text style={s.twoStatLabel}>Seats</Text><Text style={s.twoStatValue}>{user?.totalSeats||'—'}</Text></View>
+              <View style={s.twoStatCard}><Text style={s.twoStatLabel}>Price/km</Text><Text style={s.twoStatValue}>{user?.pricePerKm?`Rs.${user.pricePerKm}`:'—'}</Text></View>
+            </View>
+          </>
+        )}
+      </Card>
+
+      {/* Bank details */}
+      <Card>
+        <View style={s.cardHeaderRow}>
+          <SectionTitle>Bank Details</SectionTitle>
+          {!isEditingBank && <TouchableOpacity onPress={()=>setIsEditingBank(true)}><Text style={s.editLink}>Edit</Text></TouchableOpacity>}
+        </View>
+
+        {isEditingBank ? (
+          <>
+            {[
+              {key:'bankName',      label:'Bank Name',      ph:'e.g. Commercial Bank'},
+              {key:'accountName',   label:'Account Name',   ph:'e.g. John Doe'},
+              {key:'accountNumber', label:'Account Number', ph:'e.g. 1234567890', kb:'numeric'},
+              {key:'branchName',    label:'Branch Name',    ph:'e.g. Colombo 03'},
+            ].map(f => (
+              <StyledInput key={f.key} label={f.label} placeholder={f.ph}
+                value={bankDetails[f.key]} onChangeText={t=>setBankDetails({...bankDetails,[f.key]:t})}
+                keyboardType={f.kb||'default'}/>
+            ))}
+            <View style={s.actionRow}>
+              <GhostBtn label="Cancel" onPress={()=>setIsEditingBank(false)}/>
+              <PrimaryBtn label="Save" onPress={handleSaveBankDetails}/>
+            </View>
+          </>
+        ) : (
+          user?.bankDetails?.accountNumber ? (
+            <View style={s.bankCard}>
+              <MaterialIcons name="account-balance" size={18} color={C.amber}/>
+              <View style={{ marginLeft:12, flex:1 }}>
+                <Text style={s.bankName}>{user.bankDetails.bankName||'Bank'}</Text>
+                <Text style={s.bankAccNum}>{user.bankDetails.accountNumber}</Text>
+                <Text style={s.bankSub}>{user.bankDetails.accountName} · {user.bankDetails.branchName}</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={s.emptyText}>No bank details added yet.</Text>
+          )
+        )}
+      </Card>
+    </ScrollView>
+  );
+
+  const screens = { overview:renderOverview, tracking:renderTracking, passengers:renderPassengers, payments:renderPayments, settings:renderSettings };
+
+  // ── Render ────────────────────────────────────────────────────
+  return (
+    <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg}/>
+
+      {/* Header */}
+      <View style={s.header}>
+        <View style={s.headerLeft}>
+          <View style={s.headerAvatar}>
+            <Text style={s.headerAvatarText}>{user?.name?.charAt(0)}</Text>
+          </View>
+          <View>
+            <Text style={s.headerName}>{user?.name||'Driver'}</Text>
+            <Text style={s.headerSub}>{user?.vehicleNumber||'No vehicle'} · {user?.vehicleType||''}</Text>
+          </View>
+        </View>
+        <TouchableOpacity onPress={()=>navigation.replace('Login')} style={s.logoutBtn}>
+          <MaterialIcons name="logout" size={20} color={C.textMuted}/>
+        </TouchableOpacity>
+      </View>
+
+      {/* Screen */}
+      <View style={{ flex:1 }}>
+        {screens[activeTab]?.()}
+      </View>
+
+      {/* Bottom tab bar */}
+      <View style={s.tabBar}>
+        {TABS.map(tab => {
+          const active = activeTab === tab.id;
+          const badge = tab.id==='payments' && pendingPaymentsCount > 0 ? pendingPaymentsCount : null;
+          return (
+            <TouchableOpacity key={tab.id} onPress={()=>setActiveTab(tab.id)} style={s.tabItem}>
+              <View style={{ position:'relative' }}>
+                <Ionicons name={tab.icon} size={22} color={active ? C.amber : C.textMuted}/>
+                {badge ? (
+                  <View style={s.tabBadge}><Text style={s.tabBadgeText}>{badge}</Text></View>
+                ) : null}
+              </View>
+              <Text style={[s.tabLabel, active && { color:C.amber }]}>{tab.label}</Text>
+              {active && <View style={s.tabIndicator}/>}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.light.secondary },
-  header: { backgroundColor: Colors.light.primary, padding: 20, paddingTop: 50, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: 'white' },
-  welcomeText: { fontSize: 18, color: '#e6f4ea', marginTop: 10 },
-  content: { padding: 20, paddingTop: 10, paddingBottom: 40 },
-  card: { backgroundColor: 'white', borderRadius: 15, padding: 20, marginBottom: 20, elevation: 2 },
-  cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
-  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
-  cardTitleNoMargin: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  editText: { color: Colors.light.primary, fontWeight: 'bold', fontSize: 16 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  
-  dateBadge: { backgroundColor: '#f0f0f0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 15 },
-  dateBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#555' },
-  summaryBox: { padding: 15, borderRadius: 10, borderWidth: 1, marginBottom: 15 },
-  summaryBoxGray: { backgroundColor: '#f8f9fa', borderColor: '#eee' },
-  summaryBoxRed: { backgroundColor: '#ffebee', borderColor: '#ffcdd2' },
-  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  summaryPeriodTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusBadgeGreen: { backgroundColor: '#e8f5e9' },
-  statusBadgeRed: { backgroundColor: '#ffcdd2' },
-  statusBadgeText: { fontSize: 10, fontWeight: 'bold' },
-  statusBadgeTextGreen: { color: '#2e7d32' },
-  statusBadgeTextRed: { color: '#c62828' },
-  summaryStatRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  summaryStatRowTop: { borderTopWidth: 1, borderTopColor: '#ddd', paddingTop: 6, marginTop: 4 },
-  summaryStatLabel: { fontSize: 13, color: '#666' },
-  summaryStatValue: { fontSize: 14, fontWeight: 'bold', color: '#444' },
-  summaryStatDetail: { fontSize: 12, fontWeight: 'normal', color: '#999' },
-  infoText: { fontSize: 16, color: '#555', marginLeft: 10 },
-  
-  editSection: { marginTop: 5 },
-  viewSection: { marginTop: 5 },
-  routeEditCard: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#eee', position: 'relative' },
-  removeRouteBtn: { position: 'absolute', top: 10, right: 10, zIndex: 10, padding: 5 },
-  routeViewCard: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
-  addRouteBtn: { alignSelf: 'center', marginBottom: 15, paddingVertical: 5 },
-  addRouteBtnText: { color: Colors.light.primary, fontWeight: 'bold', fontSize: 16 },
-  inputLabel: { fontSize: 14, color: '#666', marginBottom: 5 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 15, backgroundColor: 'white' },
-  actionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
-  cancelBtn: { padding: 10, marginRight: 10 },
-  cancelBtnText: { color: '#666', fontWeight: 'bold', fontSize: 16 },
-  saveBtn: { backgroundColor: Colors.light.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  saveBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  locationContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
-  locationRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
-  locationTextContainer: { marginLeft: 8 },
-  locationLabel: { fontSize: 12, fontWeight: 'bold', color: '#666' },
-  locationText: { fontSize: 13, color: '#444' },
-  
-  sectionHeaderContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, marginTop: 10 },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
-  badge: { backgroundColor: Colors.light.primary, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 10 },
-  badgeText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  
-  passengerCard: { backgroundColor: 'white', borderRadius: 12, padding: 15, marginBottom: 12, elevation: 1, borderLeftWidth: 4, borderLeftColor: Colors.light.primary },
-  passengerCardAbsent: { borderLeftColor: 'red', backgroundColor: '#fffcfc' },
-  passengerHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  passengerHeader: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.light.secondary, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  avatarAbsent: { backgroundColor: '#ffeaea' },
-  avatarText: { fontSize: 18, fontWeight: 'bold', color: Colors.light.primary },
-  passengerName: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 10 },
-  passengerDate: { fontSize: 12, color: '#888', marginTop: 2 },
-  absentBadge: { backgroundColor: '#ffeaea', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#ffcccc' },
-  absentBadgeText: { color: 'red', fontSize: 10, fontWeight: 'bold', letterSpacing: 0.5 },
-  passengerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, marginLeft: 34 },
-  iconSpaced: { marginRight: 8 },
-  passengerText: { fontSize: 14, color: '#666' },
-  emptyText: { textAlign: 'center', color: '#777', fontSize: 16, marginTop: 20, fontStyle: 'italic' },
-  upcomingAbsencesContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
-  upcomingAbsencesLabel: { fontSize: 12, fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: 6 },
-  upcomingAbsencesList: { flexDirection: 'row', flexWrap: 'wrap' },
-  upcomingAbsenceChip: { backgroundColor: '#fff3e0', borderWidth: 1, borderColor: '#ffe0b2', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, marginRight: 6, marginBottom: 4 },
-  upcomingAbsenceText: { color: '#e65100', fontSize: 11, fontWeight: 'bold' }
+// ─── Styles ───────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  safe:         { flex:1, backgroundColor:C.bg },
+  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:18, paddingVertical:12, backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border },
+  headerLeft:   { flexDirection:'row', alignItems:'center', gap:12 },
+  headerAvatar: { width:38, height:38, borderRadius:19, backgroundColor:C.amber, alignItems:'center', justifyContent:'center' },
+  headerAvatarText: { color:C.bg, fontWeight:'800', fontSize:16 },
+  headerName:   { color:C.text, fontWeight:'700', fontSize:15 },
+  headerSub:    { color:C.textMuted, fontSize:12, marginTop:1 },
+  logoutBtn:    { padding:8 },
+
+  tabBar:       { flexDirection:'row', backgroundColor:C.surface, borderTopWidth:1, borderTopColor:C.border, paddingBottom: Platform.OS==='ios'?16:6, paddingTop:6 },
+  tabItem:      { flex:1, alignItems:'center', justifyContent:'center', paddingVertical:4, position:'relative' },
+  tabLabel:     { fontSize:9.5, color:C.textMuted, marginTop:3, fontWeight:'600', letterSpacing:0.3 },
+  tabIndicator: { position:'absolute', top:-6, width:20, height:2.5, backgroundColor:C.amber, borderRadius:2 },
+  tabBadge:     { position:'absolute', top:-4, right:-8, backgroundColor:C.red, borderRadius:7, minWidth:14, height:14, alignItems:'center', justifyContent:'center', paddingHorizontal:2 },
+  tabBadgeText: { color:'white', fontSize:8, fontWeight:'800' },
+
+  tabContent:   { padding:14, paddingBottom:20 },
+  card:         { backgroundColor:C.surface, borderRadius:16, padding:16, marginBottom:12, borderWidth:1, borderColor:C.border },
+  sectionTitle: { fontSize:15, fontWeight:'800', letterSpacing:0.3, marginBottom:12 },
+  cardDesc:     { fontSize:12, color:C.textMuted, marginBottom:14, lineHeight:18 },
+  cardHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:12 },
+  editLink:     { color:C.amber, fontWeight:'700', fontSize:13 },
+
+  statRow:      { flexDirection:'row', gap:8, marginBottom:12 },
+  statCard:     { flex:1, backgroundColor:C.surface, borderRadius:14, padding:12, borderWidth:1, borderColor:C.border, alignItems:'flex-start' },
+  statIcon:     { width:32, height:32, borderRadius:10, alignItems:'center', justifyContent:'center', marginBottom:8 },
+  statValue:    { color:C.text, fontWeight:'800', fontSize:18 },
+  statLabel:    { color:C.textMuted, fontSize:10, marginTop:2, fontWeight:'600' },
+
+  summaryBox:   { borderRadius:14, padding:14, marginBottom:10, borderWidth:1 },
+  summaryHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10 },
+  summaryPeriod:{ color:C.text, fontWeight:'700', fontSize:15 },
+  summaryRow:   { flexDirection:'row', justifyContent:'space-between', marginBottom:6 },
+  summaryRowBorder: { borderTopWidth:1, borderTopColor:C.border2, paddingTop:8, marginTop:4 },
+  summaryLabel: { color:C.textMuted, fontSize:13 },
+  summaryValue: { color:C.text, fontWeight:'600', fontSize:13 },
+
+  routeChip:    { flexDirection:'row', alignItems:'center', gap:8, backgroundColor:C.surface2, borderRadius:10, paddingHorizontal:10, paddingVertical:9, marginBottom:6 },
+  routeChipText:{ flex:1, color:C.text, fontSize:13, fontWeight:'500' },
+  routeTime:    { color:C.amber, fontSize:12, fontWeight:'700' },
+
+  miniChip:     { paddingHorizontal:8, paddingVertical:3, borderRadius:8 },
+  miniChipText: { fontSize:11, fontWeight:'700' },
+
+  listHeader:   { flexDirection:'row', alignItems:'center', gap:10, padding:16, backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border },
+  listHeaderTitle: { color:C.text, fontWeight:'700', fontSize:16 },
+
+  passengerCard:{ backgroundColor:C.surface, borderRadius:14, padding:14, marginBottom:10, borderWidth:1, borderColor:C.border, borderLeftWidth:4, borderLeftColor:C.amber },
+  passengerHeaderRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 },
+  passengerLeft:{ flexDirection:'row', alignItems:'center', gap:10 },
+  passengerAvatar: { width:36, height:36, borderRadius:18, backgroundColor:C.surface2, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:C.border2 },
+  passengerAvatarText: { color:C.text, fontWeight:'800', fontSize:15 },
+  passengerName:{ color:C.text, fontWeight:'700', fontSize:14 },
+  passengerSub: { color:C.textMuted, fontSize:12, marginTop:1 },
+  passengerEmail:{ color:C.textMuted, fontSize:12, marginBottom:6 },
+
+  locationBlock:{ paddingTop:8, borderTopWidth:1, borderTopColor:C.border2, gap:4 },
+  locationRow:  { flexDirection:'row', alignItems:'flex-start', gap:6 },
+  locationText: { color:C.textSub, fontSize:12, flex:1 },
+
+  absenceBlock: { marginTop:10, paddingTop:10, borderTopWidth:1, borderTopColor:C.border2 },
+  absenceBlockLabel: { color:C.textMuted, fontSize:10, fontWeight:'800', letterSpacing:0.8, marginBottom:6 },
+
+  extraBookingRow:{ backgroundColor:C.surface2, borderRadius:10, padding:10, marginBottom:6 },
+  extraBookingTop:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:4 },
+  extraBookingDate:{ color:C.text, fontWeight:'600', fontSize:13 },
+  extraLocationLine:{ paddingLeft:8, borderLeftWidth:2, borderLeftColor:C.border2, gap:2 },
+  extraLocationText:{ color:C.textMuted, fontSize:12 },
+
+  paymentPassengerRow: { flexDirection:'row', alignItems:'center', marginBottom:10 },
+  paymentPassengerName: { color:C.text, fontWeight:'700', fontSize:14 },
+  paymentPassengerEmail: { color:C.textMuted, fontSize:11 },
+  paymentCard:  { backgroundColor:C.surface2, borderRadius:12, padding:12, marginBottom:10, borderWidth:1, borderColor:C.border2 },
+  paymentThumb: { width:52, height:52, borderRadius:8, borderWidth:1, borderColor:C.border2 },
+  paymentTitle: { color:C.text, fontWeight:'700', fontSize:13, marginBottom:2 },
+  paymentDate:  { color:C.textMuted, fontSize:11 },
+  paymentNote:  { color:C.textMuted, fontSize:11, fontStyle:'italic', marginTop:3 },
+  reviewBtn:    { flex:1, paddingVertical:10, borderRadius:10, alignItems:'center', borderWidth:1 },
+  reviewBtnText:{ fontWeight:'800', fontSize:13 },
+
+  sysPayRow:    { flexDirection:'row', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:C.border },
+
+  receiptPicker:{ height:110, backgroundColor:C.surface2, borderRadius:12, borderWidth:1.5, borderColor:C.border2, borderStyle:'dashed', alignItems:'center', justifyContent:'center', marginBottom:14, overflow:'hidden' },
+  receiptPickerText: { color:C.textMuted, fontSize:13, marginTop:6 },
+  receiptPreview:{ width:'100%', height:'100%', resizeMode:'cover' },
+
+  trackingHeader:{ padding:16, backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border, flexDirection:'row', justifyContent:'space-between', alignItems:'center' },
+  trackingTitle: { color:C.text, fontWeight:'700', fontSize:15 },
+  trackingSub:   { color:C.textMuted, fontSize:12, marginTop:2 },
+  tripToggleBtn: { flexDirection:'row', alignItems:'center', gap:6, paddingHorizontal:12, paddingVertical:8, borderRadius:12, borderWidth:1 },
+  tripToggleText:{ fontWeight:'800', fontSize:12 },
+  liveDot:       { width:7, height:7, borderRadius:3.5 },
+  mapPlaceholder:{ flex:1, alignItems:'center', justifyContent:'center', gap:12 },
+  mapPlaceholderText: { color:C.textMuted, fontSize:14, textAlign:'center', paddingHorizontal:20 },
+  vehicleMarker: { backgroundColor:C.amber, padding:7, borderRadius:18, borderWidth:2, borderColor:'white' },
+  pinMarker:     { padding:5, borderRadius:18, borderWidth:2, borderColor:'white' },
+
+  inputLabel:   { color:C.textSub, fontSize:12, fontWeight:'600', marginBottom:6 },
+  input:        { backgroundColor:C.surface2, borderWidth:1, borderColor:C.border2, borderRadius:10, padding:12, fontSize:14, color:C.text },
+  primaryBtn:   { flexDirection:'row', alignItems:'center', justifyContent:'center', paddingVertical:14, borderRadius:12, marginTop:4 },
+  primaryBtnText:{ color:C.bg, fontWeight:'800', fontSize:14 },
+  ghostBtn:     { paddingVertical:14, paddingHorizontal:16 },
+  ghostBtnText: { color:C.textMuted, fontWeight:'600', fontSize:14 },
+  actionRow:    { flexDirection:'row', justifyContent:'flex-end', alignItems:'center', gap:8, marginTop:4 },
+  twoCol:       { flexDirection:'row' },
+
+  routeEditCard:{ backgroundColor:C.surface2, borderRadius:14, padding:14, marginBottom:12, borderWidth:1, borderColor:C.border2, position:'relative' },
+  removeRouteBtn:{ position:'absolute', top:10, right:10, zIndex:10, width:28, height:28, backgroundColor:C.redDim, borderRadius:14, alignItems:'center', justifyContent:'center' },
+  addRouteBtn:  { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:6, paddingVertical:12, backgroundColor:C.surface2, borderRadius:12, borderWidth:1.5, borderColor:C.border2, borderStyle:'dashed', marginBottom:14 },
+  addRouteBtnText:{ color:C.amber, fontWeight:'700', fontSize:14 },
+
+  altBox:       { backgroundColor:C.blueDim, borderRadius:12, padding:12, marginBottom:14, borderWidth:1, borderColor:C.blue+'40' },
+  altBoxTitle:  { color:C.blue, fontWeight:'700', fontSize:13, marginBottom:8 },
+  altRow:       { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingVertical:8, paddingHorizontal:10, borderRadius:8, marginBottom:4 },
+  altRowActive: { backgroundColor:C.blue+'30' },
+  altRowText:   { color:C.textSub, fontSize:13 },
+  altRowSub:    { color:C.blue, fontSize:12, fontWeight:'600' },
+
+  infoItem:     { flexDirection:'row', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:C.border },
+  infoItemLabel:{ color:C.textMuted, fontSize:11, fontWeight:'600', marginBottom:2 },
+  infoItemValue:{ color:C.text, fontSize:14, fontWeight:'500' },
+
+  bankCard:     { flexDirection:'row', alignItems:'center', backgroundColor:C.amberDim, borderRadius:12, padding:14, borderWidth:1, borderColor:C.amber+'40' },
+  bankName:     { color:C.amber, fontWeight:'800', fontSize:14 },
+  bankAccNum:   { color:C.text, fontFamily:Platform.OS==='ios'?'Courier':'monospace', fontSize:14, marginTop:2 },
+  bankSub:      { color:C.textMuted, fontSize:11, marginTop:3 },
+
+  twoStatRow:   { flexDirection:'row', gap:8, marginTop:10 },
+  twoStatCard:  { flex:1, backgroundColor:C.surface2, borderRadius:12, padding:12 },
+  twoStatLabel: { color:C.textMuted, fontSize:11, fontWeight:'600' },
+  twoStatValue: { color:C.text, fontWeight:'800', fontSize:16, marginTop:4 },
+
+  statusBadge:      { paddingHorizontal:10, paddingVertical:4, borderRadius:10 },
+  statusBadgeText:  { fontSize:11, fontWeight:'800' },
+  emptyText:        { color:C.textMuted, fontStyle:'italic', fontSize:13, textAlign:'center', paddingVertical:8 },
 });
