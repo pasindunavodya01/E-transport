@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   ActivityIndicator, TextInput, Alert, Platform,
-  ScrollView, Image, StatusBar, SafeAreaView
+  ScrollView, Image, StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import * as Location from 'expo-location';
@@ -269,7 +271,7 @@ export default function DriverDashboard({ route, navigation }) {
   };
 
   const pickSystemPaymentImage = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes:ImagePicker.MediaTypeOptions.Images, allowsEditing:true, quality:0.8 });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes:ImagePicker.MediaType.Images, allowsEditing:true, quality:0.8 });
     if (!res.canceled) {
       const a = res.assets[0];
       setSysPayImage({ uri:a.uri, type:'image/jpeg', name:`sys_payment_${Date.now()}.jpg` });

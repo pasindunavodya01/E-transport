@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, Alert,
   ScrollView, Image, ActivityIndicator, Platform, Dimensions,
-  StatusBar, SafeAreaView
+  StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import axios from 'axios';
 import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
@@ -298,7 +300,7 @@ export default function PassengerDashboard({ route, navigation }) {
   const pickReceiptImage = async () => {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!granted) { Alert.alert('Permission needed','Please allow media access.'); return; }
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes:ImagePicker.MediaTypeOptions.Images, quality:0.8, allowsEditing:true });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes:ImagePicker.MediaType.Images, quality:0.8, allowsEditing:true });
     if (!res.canceled && res.assets[0]) {
       const a = res.assets[0];
       setPaymentImage({ uri:a.uri, type:a.mimeType||'image/jpeg', name:a.fileName||'receipt.jpg' });
