@@ -128,8 +128,10 @@ export default function PassengerDashboard({ route, navigation }) {
   // Locations
   const [isEditingLocations, setIsEditingLocations] = useState(false);
   const [locationData, setLocationData] = useState({
-    pickupLocation:  user?.pickupLocation?.address  || user?.pickupLocation  || '',
-    dropoffLocation: user?.dropoffLocation?.address || user?.dropoffLocation || '',
+    morningPickup:  user?.locations?.morning?.pickup?.address  || user?.locations?.morning?.pickup  || '',
+    morningDropoff: user?.locations?.morning?.dropoff?.address || user?.locations?.morning?.dropoff || '',
+    eveningPickup:  user?.locations?.evening?.pickup?.address  || user?.locations?.evening?.pickup  || '',
+    eveningDropoff: user?.locations?.evening?.dropoff?.address || user?.locations?.evening?.dropoff || '',
   });
   const [mapPickingMode, setMapPickingMode] = useState(null);
 
@@ -204,7 +206,7 @@ export default function PassengerDashboard({ route, navigation }) {
     try {
       const loc = await Location.getCurrentPositionAsync({});
       const addr = await reverseGeocode(loc.coords.latitude, loc.coords.longitude);
-      if (addr) setLocationData(p => ({ ...p, [type+'Location']: addr }));
+      if (addr) setLocationData(p => ({ ...p, [type]: addr }));
       else Alert.alert('Error', 'Could not determine address.');
     } catch { Alert.alert('Error', 'Failed to get location.'); }
   };
@@ -213,16 +215,38 @@ export default function PassengerDashboard({ route, navigation }) {
     if (!mapPickingMode) return;
     const { latitude, longitude } = e.nativeEvent.coordinate;
     const addr = await reverseGeocode(latitude, longitude);
-    if (addr) { setLocationData(p => ({ ...p, [mapPickingMode+'Location']: addr })); setMapPickingMode(null); }
+    if (addr) { setLocationData(p => ({ ...p, [mapPickingMode]: addr })); setMapPickingMode(null); }
   };
 
   const handleSaveLocations = async () => {
     try {
-      const [pg, dg] = await Promise.all([geocodeAddress(locationData.pickupLocation), geocodeAddress(locationData.dropoffLocation)]);
-      const pp = pg ? { address:locationData.pickupLocation, lat:pg.lat, lng:pg.lng } : locationData.pickupLocation;
-      const dp = dg ? { address:locationData.dropoffLocation, lat:dg.lat, lng:dg.lng } : locationData.dropoffLocation;
-      const r = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-locations`, { pickupLocation:pp, dropoffLocation:dp }, { headers:{Authorization:`Bearer ${token}`} });
+      const [mpg, mdg, epg, edg] = await Promise.all([
+        geocodeAddress(locationData.morningPickup),
+        geocodeAddress(locationData.morningDropoff),
+        geocodeAddress(locationData.eveningPickup),
+        geocodeAddress(locationData.eveningDropoff),
+      ]);
+      
+      const ml = {
+        pickup: mpg ? { address:locationData.morningPickup, lat:mpg.lat, lng:mpg.lng } : { address:locationData.morningPickup },
+        dropoff: mdg ? { address:locationData.morningDropoff, lat:mdg.lat, lng:mdg.lng } : { address:locationData.morningDropoff },
+      };
+      const el = {
+        pickup: epg ? { address:locationData.eveningPickup, lat:epg.lat, lng:epg.lng } : { address:locationData.eveningPickup },
+        dropoff: edg ? { address:locationData.eveningDropoff, lat:edg.lat, lng:edg.lng } : { address:locationData.eveningDropoff },
+      };
+
+      const payload = {
+        locations: {
+          morning: ml,
+          evening: el
+        }
+      };
+
+      const r = await axios.put(`${process.env.EXPO_PUBLIC_API_URL}/auth/update-locations`, payload, { headers:{Authorization:`Bearer ${token}`} });
+      
       setCurrentUser(r.data); setIsEditingLocations(false);
+      Alert.alert('Success', 'Locations updated successfully.');
     } catch { Alert.alert('Error', 'Failed to update locations.'); }
   };
 
@@ -434,16 +458,28 @@ export default function PassengerDashboard({ route, navigation }) {
             <Marker coordinate={{ latitude:driverLocation.lat, longitude:driverLocation.lng }} zIndex={1000}>
               <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
             </Marker>
-            {currentUser?.pickupLocation?.lat && (
-              <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }} title="Your Pickup">
-                <View style={[s.pinMarker, { backgroundColor:C.green }]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
-              </Marker>
-            )}
-            {currentUser?.dropoffLocation?.lat && (
-              <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }} title="Your Drop-off">
-                <View style={[s.pinMarker, { backgroundColor:C.red }]}><MaterialIcons name="location-on" size={18} color="white"/></View>
-              </Marker>
-            )}
+            {(() => {
+              const activeRouteIdx = driverProfile?.activeRouteIndex ?? null;
+              const p = activeRouteIdx === 1 ? 'evening' : 'morning';
+              const locs = currentUser?.locations?.[p];
+              // Priority: 1. New period-specific locations, 2. Old location fields (only if no new ones set at all)
+              const pLoc = locs?.pickup?.lat ? locs.pickup : (!currentUser?.locations ? currentUser?.pickupLocation : null);
+              const dLoc = locs?.dropoff?.lat ? locs.dropoff : (!currentUser?.locations ? currentUser?.dropoffLocation : null);
+              return (
+                <>
+                  {pLoc?.lat && (
+                    <Marker coordinate={{ latitude:pLoc.lat, longitude:pLoc.lng }} title={`Your ${p} Pickup`}>
+                      <View style={[s.pinMarker, { backgroundColor:C.amber }]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+                    </Marker>
+                  )}
+                  {dLoc?.lat && (
+                    <Marker coordinate={{ latitude:dLoc.lat, longitude:dLoc.lng }} title={`Your ${p} Drop-off`}>
+                      <View style={[s.pinMarker, { backgroundColor:C.blue }]}><MaterialIcons name="location-on" size={18} color="white"/></View>
+                    </Marker>
+                  )}
+                </>
+              );
+            })()}
             {driverProfile?.routes?.map((r,i) => {
               if (!r.polyline) return null;
               let coords = [];
@@ -706,26 +742,34 @@ export default function PassengerDashboard({ route, navigation }) {
         {isEditingLocations ? (
           <>
             {[
-              { key:'pickup', label:'Pickup Location', placeholder:'e.g. Dematagoda Station' },
-              { key:'dropoff', label:'Drop-off Location', placeholder:'e.g. Kandy Town' },
-            ].map(f => (
-              <View key={f.key} style={{ marginBottom:14 }}>
-                <Text style={s.inputLabel}>{f.label}</Text>
-                <View style={s.inputRow}>
-                  <TextInput
-                    style={[s.input, { flex:1 }]}
-                    value={locationData[f.key+'Location']}
-                    onChangeText={t=>setLocationData(p=>({...p,[f.key+'Location']:t}))}
-                    placeholder={f.placeholder}
-                    placeholderTextColor={C.textMuted}
-                  />
-                  <TouchableOpacity onPress={()=>handleUseCurrentLocation(f.key)} style={s.iconBtn}>
-                    <MaterialIcons name="my-location" size={18} color={C.amber}/>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={()=>setMapPickingMode(mapPickingMode===f.key?null:f.key)} style={[s.iconBtn, mapPickingMode===f.key&&{ backgroundColor:C.amber }]}>
-                    <MaterialIcons name="map" size={18} color={mapPickingMode===f.key?C.bg:C.amber}/>
-                  </TouchableOpacity>
-                </View>
+              { period:'morning', label:'Morning Route' },
+              { period:'evening', label:'Evening Route' },
+            ].map(p => (
+              <View key={p.period} style={{ marginBottom:20, padding:12, backgroundColor:C.surface2, borderRadius:12 }}>
+                <Text style={[s.sectionTitle, { fontSize:14, marginBottom:10 }]}>{p.label}</Text>
+                {['Pickup', 'Dropoff'].map(type => {
+                  const key = p.period + type;
+                  return (
+                    <View key={key} style={{ marginBottom:14 }}>
+                      <Text style={s.inputLabel}>{type}</Text>
+                      <View style={s.inputRow}>
+                        <TextInput
+                          style={[s.input, { flex:1 }]}
+                          value={locationData[key]}
+                          onChangeText={t=>setLocationData(prev=>({...prev,[key]:t}))}
+                          placeholder={`e.g. ${type === 'Pickup' ? 'Station' : 'Office'}`}
+                          placeholderTextColor={C.textMuted}
+                        />
+                        <TouchableOpacity onPress={()=>handleUseCurrentLocation(key)} style={s.iconBtn}>
+                          <MaterialIcons name="my-location" size={18} color={C.amber}/>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={()=>setMapPickingMode(mapPickingMode===key?null:key)} style={[s.iconBtn, mapPickingMode===key&&{ backgroundColor:C.amber }]}>
+                          <MaterialIcons name="map" size={18} color={mapPickingMode===key?C.bg:C.amber}/>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             ))}
 
@@ -733,17 +777,30 @@ export default function PassengerDashboard({ route, navigation }) {
               <View style={{ height:200, borderRadius:12, overflow:'hidden', marginBottom:14, borderWidth:1.5, borderColor:C.amber }}>
                 <MapView
                   style={{ flex:1 }}
-                  initialRegion={{ latitude:currentUser?.pickupLocation?.lat||6.9271, longitude:currentUser?.pickupLocation?.lng||79.8612, latitudeDelta:0.05, longitudeDelta:0.05 }}
+                  initialRegion={{ 
+                    latitude: currentUser?.locations?.[mapPickingMode.startsWith('morning')?'morning':'evening']?.[mapPickingMode.endsWith('Pickup')?'pickup':'dropoff']?.lat || 6.9271, 
+                    longitude: currentUser?.locations?.[mapPickingMode.startsWith('morning')?'morning':'evening']?.[mapPickingMode.endsWith('Pickup')?'pickup':'dropoff']?.lng || 79.8612, 
+                    latitudeDelta:0.05, longitudeDelta:0.05 
+                  }}
                   onPress={handleMapPress}
                   mapType={Platform.OS==='android'?'none':'standard'}
                 >
                   {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
-                  {currentUser?.pickupLocation?.lat && <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }}><View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={16} color="white"/></View></Marker>}
-                  {currentUser?.dropoffLocation?.lat && <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }}><View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={16} color="white"/></View></Marker>}
+                  {/* Show markers for current period */}
+                  {(() => {
+                    const p = mapPickingMode.startsWith('morning') ? 'morning' : 'evening';
+                    const locs = currentUser?.locations?.[p];
+                    return (
+                      <>
+                        {locs?.pickup?.lat && <Marker coordinate={{ latitude:locs.pickup.lat, longitude:locs.pickup.lng }}><View style={[s.pinMarker,{backgroundColor:C.amber}]}><MaterialIcons name="person-pin-circle" size={16} color="white"/></View></Marker>}
+                        {locs?.dropoff?.lat && <Marker coordinate={{ latitude:locs.dropoff.lat, longitude:locs.dropoff.lng }}><View style={[s.pinMarker,{backgroundColor:C.blue}]}><MaterialIcons name="location-on" size={16} color="white"/></View></Marker>}
+                      </>
+                    );
+                  })()}
                 </MapView>
                 <View style={s.mapOverlayBanner}>
                   <MaterialIcons name="touch-app" size={16} color="white"/>
-                  <Text style={s.mapOverlayText}>Tap to set {mapPickingMode}</Text>
+                  <Text style={s.mapOverlayText}>Tap to set {mapPickingMode.replace(/([A-Z])/g, ' $1')}</Text>
                 </View>
               </View>
             )}
@@ -756,17 +813,77 @@ export default function PassengerDashboard({ route, navigation }) {
         ) : (
           <>
             {[
-              { icon:'my-location', color:C.green, label:'Pickup',   value:currentUser?.pickupLocation?.address||currentUser?.pickupLocation },
-              { icon:'location-pin', color:C.red,  label:'Drop-off', value:currentUser?.dropoffLocation?.address||currentUser?.dropoffLocation },
-            ].map(f => (
-              <View key={f.label} style={s.locationDisplay}>
-                <MaterialIcons name={f.icon} size={18} color={f.color}/>
-                <View style={{ marginLeft:10, flex:1 }}>
-                  <Text style={s.infoItemLabel}>{f.label}</Text>
-                  <Text style={s.infoItemValue}>{f.value||'Not set'}</Text>
+              { period:'morning', label:'Morning Route' },
+              { period:'evening', label:'Evening Route' },
+            ].map(p => {
+              const periodLocs = currentUser?.locations?.[p.period];
+              const locs = (periodLocs?.pickup || periodLocs?.dropoff) 
+                ? periodLocs 
+                : (!currentUser?.locations ? { pickup:currentUser?.pickupLocation, dropoff:currentUser?.dropoffLocation } : null);
+              return (
+                <View key={p.period} style={{ marginBottom:16 }}>
+                  <Text style={[s.infoItemLabel, { color:C.amber, marginBottom:6 }]}>{p.label}</Text>
+                  <View style={s.locationDisplay}>
+                    <MaterialIcons name="my-location" size={18} color={C.amber}/>
+                    <View style={{ marginLeft:10, flex:1 }}>
+                      <Text style={s.infoItemLabel}>Pickup</Text>
+                      <Text style={s.infoItemValue}>{locs?.pickup?.address || locs?.pickup || 'Not set'}</Text>
+                    </View>
+                  </View>
+                  <View style={s.locationDisplay}>
+                    <MaterialIcons name="location-pin" size={18} color={C.blue}/>
+                    <View style={{ marginLeft:10, flex:1 }}>
+                      <Text style={s.infoItemLabel}>Drop-off</Text>
+                      <Text style={s.infoItemValue}>{locs?.dropoff?.address || locs?.dropoff || 'Not set'}</Text>
+                    </View>
+                  </View>
                 </View>
+              );
+            })}
+
+            {(currentUser?.locations || currentUser?.pickupLocation || currentUser?.dropoffLocation) && (
+              <View style={{ marginTop:10 }}>
+                <Text style={[s.infoItemLabel, { marginBottom:10 }]}>LOCATION PREVIEW</Text>
+                <View style={{ height:200, borderRadius:12, overflow:'hidden', borderWidth:1, borderColor:C.muted }}>
+                  <MapView
+                    style={{ flex:1 }}
+                    initialRegion={{ 
+                      latitude: currentUser?.locations?.morning?.pickup?.lat || currentUser?.pickupLocation?.lat || 6.9271, 
+                      longitude: currentUser?.locations?.morning?.pickup?.lng || currentUser?.pickupLocation?.lng || 79.8612, 
+                      latitudeDelta:0.08, longitudeDelta:0.08 
+                    }}
+                    mapType={Platform.OS==='android'?'none':'standard'}
+                  >
+                    {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
+                    {[
+                      { p: 'morning', color: C.amber, icon: 'person-pin-circle', label: 'Morning Pickup' },
+                      { p: 'morning', type: 'dropoff', color: C.blue, icon: 'location-on', label: 'Morning Drop-off' },
+                      { p: 'evening', color: C.green, icon: 'person-pin-circle', label: 'Evening Pickup' },
+                      { p: 'evening', type: 'dropoff', color: C.red, icon: 'location-on', label: 'Evening Drop-off' }
+                    ].map((item, idx) => {
+                      const loc = currentUser?.locations?.[item.p]?.[item.type || 'pickup'];
+                      if (!loc?.lat) return null;
+                      return (
+                        <Marker key={idx} coordinate={{ latitude:loc.lat, longitude:loc.lng }} title={item.label} description={loc.address}>
+                          <View style={[s.pinMarker, { backgroundColor:item.color }]}>
+                            <MaterialIcons name={item.icon} size={16} color="white"/>
+                          </View>
+                        </Marker>
+                      );
+                    })}
+                    {!currentUser?.locations && (
+                      <>
+                        {currentUser?.pickupLocation?.lat && <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }} title="Pickup" description={currentUser.pickupLocation.address} pinColor={C.amber}/>}
+                        {currentUser?.dropoffLocation?.lat && <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }} title="Drop-off" description={currentUser.dropoffLocation.address} pinColor={C.blue}/>}
+                      </>
+                    )}
+                  </MapView>
+                </View>
+                <Text style={{ fontSize:10, color:C.textMuted, marginTop:6, fontStyle:'italic', textAlign:'center' }}>
+                  Verify your locations on the map. If they are incorrect, tap "Edit" above.
+                </Text>
               </View>
-            ))}
+            )}
           </>
         )}
       </Card>

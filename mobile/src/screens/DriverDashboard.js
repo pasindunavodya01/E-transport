@@ -113,6 +113,8 @@ export default function DriverDashboard({ route, navigation }) {
     pricePerKm:  initialUser?.pricePerKm  ? String(initialUser.pricePerKm)  : '',
   });
   const [isTripActive,    setIsTripActive]    = useState(initialUser?.isTripActive || false);
+  const [activeRouteIndex, setActiveRouteIndex] = useState(initialUser?.activeRouteIndex);
+  const [showRoutePicker, setShowRoutePicker] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(initialUser?.currentLocation || null);
   const [routePolylines,  setRoutePolylines]  = useState(() => {
     return (initialUser?.routes || [])
@@ -186,12 +188,26 @@ export default function DriverDashboard({ route, navigation }) {
     socketRef.current?.disconnect(); socketRef.current = null;
   };
 
-  const toggleTrip = async () => {
+  const toggleTrip = async (routeIdx) => {
     try {
-      const ep = isTripActive ? 'end-trip' : 'start-trip';
-      const { data } = await axios.put(`${API}/${ep}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-      setIsTripActive(data.isTripActive);
-      if (!data.isTripActive) setCurrentLocation(null);
+      if (isTripActive) {
+        // End trip
+        const { data } = await axios.put(`${API}/end-trip`, {}, { headers: { Authorization: `Bearer ${token}` } });
+        setIsTripActive(data.isTripActive);
+        setActiveRouteIndex(null);
+        setCurrentLocation(null);
+      } else {
+        // Start trip - requires route select if not passed
+        if (routeIdx === undefined && user?.routes?.length > 1) {
+          setShowRoutePicker(true);
+          return;
+        }
+        const idx = routeIdx !== undefined ? routeIdx : 0;
+        const { data } = await axios.put(`${API}/start-trip`, { activeRouteIndex: idx }, { headers: { Authorization: `Bearer ${token}` } });
+        setIsTripActive(data.isTripActive);
+        setActiveRouteIndex(data.activeRouteIndex);
+        setShowRoutePicker(false);
+      }
     } catch { Alert.alert('Error', 'Could not toggle trip state.'); }
   };
 
@@ -447,20 +463,26 @@ export default function DriverDashboard({ route, navigation }) {
                 <Polyline key={i} coordinates={poly.points} strokeColor={C.amber} strokeWidth={4}/>
               );
             })}
-            {passengers.map(p => (
-              <React.Fragment key={p._id}>
-                {p.pickupLocation?.lat && (
-                  <Marker coordinate={{ latitude:p.pickupLocation.lat, longitude:p.pickupLocation.lng }} title={`${p.name}: Pickup`}>
-                    <View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
-                  </Marker>
-                )}
-                {p.dropoffLocation?.lat && (
-                  <Marker coordinate={{ latitude:p.dropoffLocation.lat, longitude:p.dropoffLocation.lng }} title={`${p.name}: Drop-off`}>
-                    <View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={18} color="white"/></View>
-                  </Marker>
-                )}
-              </React.Fragment>
-            ))}
+            {passengers.map(p => {
+              const period = activeRouteIndex === 1 ? 'evening' : 'morning';
+              const pLoc = p.locations?.[period]?.pickup || p.pickupLocation;
+              const dLoc = p.locations?.[period]?.dropoff || p.dropoffLocation;
+              
+              return (
+                <React.Fragment key={p._id}>
+                  {pLoc?.lat && (
+                    <Marker coordinate={{ latitude:pLoc.lat, longitude:pLoc.lng }} title={`${p.name}: Pickup`}>
+                      <View style={[s.pinMarker,{backgroundColor:C.amber}]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+                    </Marker>
+                  )}
+                  {dLoc?.lat && (
+                    <Marker coordinate={{ latitude:dLoc.lat, longitude:dLoc.lng }} title={`${p.name}: Drop-off`}>
+                      <View style={[s.pinMarker,{backgroundColor:C.blue}]}><MaterialIcons name="location-on" size={18} color="white"/></View>
+                    </Marker>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </MapView>
           {Platform.OS === 'android' && (
             <View style={s.mapAttribution}>
@@ -475,10 +497,33 @@ export default function DriverDashboard({ route, navigation }) {
             {isTripActive ? 'Acquiring GPS signal…' : 'Start trip to broadcast location'}
           </Text>
           {!isTripActive && (
-            <TouchableOpacity onPress={toggleTrip} style={[s.primaryBtn, { marginTop:20, paddingHorizontal:28 }]}>
+            <TouchableOpacity onPress={() => toggleTrip()} style={[s.primaryBtn, { marginTop:20, paddingHorizontal:28 }]}>
               <Text style={s.primaryBtnText}>Start Tracking</Text>
             </TouchableOpacity>
           )}
+        </View>
+      )}
+
+      {showRoutePicker && (
+        <View style={s.routePickerOverlay}>
+          <View style={s.routePickerCard}>
+            <SectionTitle>Select Route to Start</SectionTitle>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {user?.routes?.map((r, i) => (
+                <TouchableOpacity key={i} onPress={() => toggleTrip(i)} style={s.routePickerItem}>
+                  <MaterialIcons name="route" size={20} color={C.amber} />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={s.routePickerText} numberOfLines={1}>{r.route}</Text>
+                    <Text style={s.routePickerSub}>{r.startTime}</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setShowRoutePicker(false)} style={s.routePickerCancel}>
+              <Text style={s.routePickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </View>
@@ -508,22 +553,33 @@ export default function DriverDashboard({ route, navigation }) {
 
         <Text style={s.passengerEmail}>{item.email}</Text>
 
-        {(item.pickupLocation || item.dropoffLocation) && (
-          <View style={s.locationBlock}>
-            {item.pickupLocation && (
-              <View style={s.locationRow}>
-                <MaterialIcons name="my-location" size={13} color={C.green}/>
-                <Text style={s.locationText}>{item.pickupLocation?.address || item.pickupLocation}</Text>
-              </View>
-            )}
-            {item.dropoffLocation && (
-              <View style={s.locationRow}>
-                <MaterialIcons name="location-pin" size={13} color={C.red}/>
-                <Text style={s.locationText}>{item.dropoffLocation?.address || item.dropoffLocation}</Text>
-              </View>
-            )}
-          </View>
-        )}
+        {(() => {
+          const period = activeRouteIndex === 1 ? 'evening' : 'morning';
+          const pLoc = item.locations?.[period]?.pickup || item.pickupLocation;
+          const dLoc = item.locations?.[period]?.dropoff || item.dropoffLocation;
+          
+          if (!pLoc && !dLoc) return null;
+          
+          return (
+            <View style={s.locationBlock}>
+              <Text style={[s.absenceBlockLabel, { marginBottom: 4, color: C.amber }]}>
+                {period.toUpperCase()} LOCATIONS
+              </Text>
+              {pLoc && (
+                <View style={s.locationRow}>
+                  <MaterialIcons name="my-location" size={13} color={C.amber}/>
+                  <Text style={s.locationText}>{pLoc.address || pLoc}</Text>
+                </View>
+              )}
+              {dLoc && (
+                <View style={s.locationRow}>
+                  <MaterialIcons name="location-pin" size={13} color={C.blue}/>
+                  <Text style={s.locationText}>{dLoc.address || dLoc}</Text>
+                </View>
+              )}
+            </View>
+          );
+        })()}
 
         {upcoming.length > 0 && (
           <View style={s.absenceBlock}>
@@ -1055,4 +1111,52 @@ const s = StyleSheet.create({
     fontSize: 7,
     fontWeight: '600',
   },
-});
+  routePickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: 20
+  },
+  routePickerCard: {
+    backgroundColor: C.surface,
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: C.border2
+  },
+  routePickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: C.surface2,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border
+  },
+  routePickerText: {
+    color: C.text,
+    fontWeight: '700',
+    fontSize: 15
+  },
+  routePickerSub: {
+    color: C.amber,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2
+  },
+  routePickerCancel: {
+    marginTop: 12,
+    paddingVertical: 12,
+    alignItems: 'center'
+  },
+  routePickerCancelText: {
+    color: C.textMuted,
+    fontWeight: '700',
+    fontSize: 14
+  },
+});

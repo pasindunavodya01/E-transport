@@ -50,6 +50,8 @@ export default function DriverDashboard() {
   const [isEditingRoute, setIsEditingRoute] = useState(false);
   const [routeData, setRouteData] = useState({ routes: [], totalSeats: '', pricePerKm: '' });
   const [isTripActive, setIsTripActive] = useState(false);
+  const [activeRouteIndex, setActiveRouteIndex] = useState(null);
+  const [showRoutePicker, setShowRoutePicker] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const currentLocationRef = React.useRef(null);
   const [routePolylines, setRoutePolylines] = useState([]);
@@ -79,6 +81,7 @@ export default function DriverDashboard() {
         setRouteData({ routes: data.routes||[], totalSeats: data.totalSeats||'', pricePerKm: data.pricePerKm||'' });
         setBankDetails({ bankName:data.bankDetails?.bankName||'', accountName:data.bankDetails?.accountName||'', accountNumber:data.bankDetails?.accountNumber||'', branchName:data.bankDetails?.branchName||'' });
         setIsTripActive(data.isTripActive||false);
+        setActiveRouteIndex(data.activeRouteIndex ?? null);
         if (data.currentLocation) setCurrentLocation(data.currentLocation);
         try {
           const sysRes = await axios.get(`${import.meta.env.VITE_API_URL.replace('/api','')}/api/payments/admin/my-payments`, { headers:{Authorization:`Bearer ${token}`} });
@@ -138,7 +141,7 @@ export default function DriverDashboard() {
       },30000);
     }
     return ()=>{ if(watchId!==undefined) navigator.geolocation.clearWatch(watchId); if(interval) clearInterval(interval); if(newSocket) newSocket.disconnect(); };
-  }, [isTripActive, profile]);
+  }, [isTripActive, profile, activeRouteIndex]);
 
   const getTodayStr = () => { const d=new Date(); return (new Date(d-d.getTimezoneOffset()*60000)).toISOString().split('T')[0]; };
 
@@ -195,13 +198,28 @@ export default function DriverDashboard() {
   };
 
   const toggleTrip = async () => {
-    try{
-      const token=localStorage.getItem('userToken');
-      const endpoint=isTripActive?'end-trip':'start-trip';
-      const{data}=await axios.put(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`,{},{headers:{Authorization:`Bearer ${token}`}});
+    if (isTripActive) {
+      try {
+        const token = localStorage.getItem('userToken');
+        const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/end-trip`, {}, { headers: { Authorization: `Bearer ${token}` } });
+        setIsTripActive(data.isTripActive);
+        setActiveRouteIndex(null);
+        setCurrentLocation(null);
+      } catch { alert('Could not end trip'); }
+    } else {
+      if (profile?.routes?.length > 1) setShowRoutePicker(true);
+      else startTrip(0);
+    }
+  };
+
+  const startTrip = async (index) => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/start-trip`, { activeRouteIndex: index }, { headers: { Authorization: `Bearer ${token}` } });
       setIsTripActive(data.isTripActive);
-      if(!data.isTripActive)setCurrentLocation(null);
-    }catch(e){alert('Could not toggle trip state.');}
+      setActiveRouteIndex(data.activeRouteIndex);
+      setShowRoutePicker(false);
+    } catch { alert('Could not start trip'); }
   };
 
   const reviewPayment = async (passengerId,paymentId,status) => {
@@ -444,12 +462,16 @@ export default function DriverDashboard() {
                       {routePolylines.map((poly,i)=>(
                         <Polyline key={i} positions={poly.points.map(p=>[p.lat,p.lng])} color="#f59e0b" weight={4} opacity={0.7}/>
                       ))}
-                      {passengers.map(p=>(
-                        <React.Fragment key={p._id}>
-                          {p.pickupLocation?.lat&&<Marker position={[p.pickupLocation.lat,p.pickupLocation.lng]} icon={pickupIcon}><Popup>📍 {p.name}: Pickup</Popup></Marker>}
-                          {p.dropoffLocation?.lat&&<Marker position={[p.dropoffLocation.lat,p.dropoffLocation.lng]} icon={dropoffIcon}><Popup>🏁 {p.name}: Drop-off</Popup></Marker>}
-                        </React.Fragment>
-                      ))}
+                      {passengers.map(p=>{
+                        const period = activeRouteIndex === 1 ? 'evening' : 'morning';
+                        const locs = p.locations?.[period] || { pickup: p.pickupLocation, dropoff: p.dropoffLocation };
+                        return (
+                          <React.Fragment key={p._id}>
+                            {locs.pickup?.lat && <Marker position={[locs.pickup.lat, locs.pickup.lng]} icon={pickupIcon}><Popup>📍 {p.name}: {period} Pickup</Popup></Marker>}
+                            {locs.dropoff?.lat && <Marker position={[locs.dropoff.lat, locs.dropoff.lng]} icon={dropoffIcon}><Popup>🏁 {p.name}: {period} Drop-off</Popup></Marker>}
+                          </React.Fragment>
+                        );
+                      })}
                     </MapContainer>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-500">
@@ -493,10 +515,19 @@ export default function DriverDashboard() {
                           {todayAbsence&&<span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full font-medium">Absent</span>}
                         </div>
                         <p className="text-slate-400 text-xs flex items-center gap-1.5 mb-2"><Mail className="w-3 h-3"/>{passenger.email}</p>
-                        {(passenger.pickupLocation||passenger.dropoffLocation)&&(
+                        {(passenger.locations || passenger.pickupLocation || passenger.dropoffLocation) && (
                           <div className="mt-2 pt-2 border-t border-slate-800 space-y-1">
-                            {passenger.pickupLocation&&<p className="text-xs text-slate-400 flex items-start gap-1.5"><MapPin className="w-3 h-3 text-green-400 flex-shrink-0 mt-0.5"/>Pickup: {passenger.pickupLocation?.address||passenger.pickupLocation}</p>}
-                            {passenger.dropoffLocation&&<p className="text-xs text-slate-400 flex items-start gap-1.5"><MapPin className="w-3 h-3 text-red-400 flex-shrink-0 mt-0.5"/>Drop-off: {passenger.dropoffLocation?.address||passenger.dropoffLocation}</p>}
+                            {(() => {
+                              const period = activeRouteIndex === 1 ? 'evening' : 'morning';
+                              const locs = passenger.locations?.[period] || { pickup: passenger.pickupLocation, dropoff: passenger.dropoffLocation };
+                              return (
+                                <>
+                                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1">Showing {period} locations</p>
+                                  {locs.pickup && <p className="text-xs text-slate-400 flex items-start gap-1.5"><MapPin className="w-3 h-3 text-green-400 flex-shrink-0 mt-0.5"/>Pickup: {locs.pickup?.address || locs.pickup}</p>}
+                                  {locs.dropoff && <p className="text-xs text-slate-400 flex items-start gap-1.5"><MapPin className="w-3 h-3 text-red-400 flex-shrink-0 mt-0.5"/>Drop-off: {locs.dropoff?.address || locs.dropoff}</p>}
+                                </>
+                              );
+                            })()}
                           </div>
                         )}
                         {passenger.absences?.filter(a=>a.date>getTodayStr()).length>0&&(
@@ -795,6 +826,32 @@ export default function DriverDashboard() {
 
         </main>
       </div>
+
+      {showRoutePicker && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-white font-bold text-lg">Select Active Route</h2>
+              <p className="text-slate-500 text-sm mt-1">Which route are you driving now?</p>
+            </div>
+            <div className="p-4 space-y-2">
+              {profile?.routes?.map((r, i) => (
+                <button key={i} onClick={() => startTrip(i)}
+                  className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700 hover:border-amber-400/50 hover:bg-slate-800 text-left transition-all group">
+                  <p className="text-amber-400 font-bold text-xs uppercase tracking-widest mb-1">{i === 0 ? 'Morning' : i === 1 ? 'Evening' : `Route ${i + 1}`}</p>
+                  <p className="text-white font-semibold text-sm group-hover:text-amber-400">{r.route}</p>
+                  <p className="text-slate-500 text-xs mt-1 flex items-center gap-1.5">
+                    <Clock className="w-3 h-3"/> Starts at {r.startTime || 'N/A'}
+                  </p>
+                </button>
+              ))}
+            </div>
+            <div className="p-4 bg-slate-950/50">
+              <button onClick={() => setShowRoutePicker(false)} className="w-full py-3 text-slate-400 text-sm font-bold hover:text-white transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

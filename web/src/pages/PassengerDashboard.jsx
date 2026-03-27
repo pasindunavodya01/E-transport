@@ -53,7 +53,10 @@ export default function PassengerDashboard() {
   const [driverProfile, setDriverProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEditingLocations, setIsEditingLocations] = useState(false);
-  const [locationData, setLocationData] = useState({ pickupLocation:'', dropoffLocation:'' });
+  const [locationData, setLocationData] = useState({ 
+    morningPickup: '', morningDropoff: '', 
+    eveningPickup: '', eveningDropoff: '' 
+  });
   const [absences, setAbsences] = useState([]);
   const [selectedDateType, setSelectedDateType] = useState('Today');
   const [specificDate, setSpecificDate] = useState('');
@@ -91,7 +94,12 @@ export default function PassengerDashboard() {
     const { data } = await axios.get(`${import.meta.env.VITE_API_URL}/auth/me`, { headers:{Authorization:`Bearer ${token}`} });
     if (data.role !== 'passenger') return navigate('/driver-dashboard');
     setProfile(data);
-    setLocationData({ pickupLocation: data.pickupLocation || '', dropoffLocation: data.dropoffLocation || '' });
+    setLocationData({ 
+      morningPickup: data.locations?.morning?.pickup?.address || data.locations?.morning?.pickup || '', 
+      morningDropoff: data.locations?.morning?.dropoff?.address || data.locations?.morning?.dropoff || '',
+      eveningPickup: data.locations?.evening?.pickup?.address || data.locations?.evening?.pickup || '',
+      eveningDropoff: data.locations?.evening?.dropoff?.address || data.locations?.evening?.dropoff || ''
+    });
     setAbsences(data.absences || []);
     setExtraBookings(data.extraBookings || []);
   };
@@ -134,7 +142,10 @@ export default function PassengerDashboard() {
       if (driverProfile.currentLocation) setDriverLocation(driverProfile.currentLocation);
       sock = io(import.meta.env.VITE_API_URL.replace('/api',''), { transports:['websocket'] });
       sock.on(`live_location_${driverProfile.uid}`, loc => { setIsDriverActive(true); setDriverLocation(loc); });
-      sock.on(`trip_status_update_${driverProfile.uid}`, d => { setIsDriverActive(d.isTripActive); });
+      sock.on(`trip_status_update_${driverProfile.uid}`, d => { 
+        setIsDriverActive(d.isTripActive);
+        setDriverProfile(prev => ({ ...prev, activeRouteIndex: d.activeRouteIndex }));
+      });
     } else {
       setIsDriverActive(false);
       setDriverLocation(null);
@@ -148,7 +159,7 @@ export default function PassengerDashboard() {
     if (!navigator.geolocation) { alert("Geolocation not supported"); return; }
     navigator.geolocation.getCurrentPosition(async pos => {
       const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-      if (addr) setLocationData(prev => ({ ...prev, [type+'Location']: addr }));
+      if (addr) setLocationData(prev => ({ ...prev, [type]: addr }));
       else alert("Could not determine address.");
     }, e => alert("Error: " + e.message));
   };
@@ -157,7 +168,7 @@ export default function PassengerDashboard() {
     useMapEvents({ click: async e => {
       if (mapPickingMode) {
         const addr = await reverseGeocode(e.latlng.lat, e.latlng.lng);
-        if (addr) { setLocationData(prev=>({...prev,[mapPickingMode+'Location']:addr})); setMapPickingMode(null); }
+        if (addr) { setLocationData(prev=>({...prev,[mapPickingMode]:addr})); setMapPickingMode(null); }
       }
     }});
     return null;
@@ -166,11 +177,35 @@ export default function PassengerDashboard() {
   const handleSaveLocations = async () => {
     try {
       const token = localStorage.getItem('userToken');
-      const [pg, dg] = await Promise.all([geocodeAddress(locationData.pickupLocation), geocodeAddress(locationData.dropoffLocation)]);
-      const pp = pg ? {address:locationData.pickupLocation,lat:pg.lat,lng:pg.lng} : locationData.pickupLocation;
-      const dp = dg ? {address:locationData.dropoffLocation,lat:dg.lat,lng:dg.lng} : locationData.dropoffLocation;
-      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-locations`, { pickupLocation:pp, dropoffLocation:dp }, { headers:{Authorization:`Bearer ${token}`} });
-      setProfile(data); setIsEditingLocations(false);
+      const geocode = async (addr) => {
+        if (!addr) return null;
+        const g = await geocodeAddress(addr);
+        return g ? { address: addr, lat: g.lat, lng: g.lng } : addr;
+      };
+
+      const [mp, md, ep, ed] = await Promise.all([
+        geocode(locationData.morningPickup),
+        geocode(locationData.morningDropoff),
+        geocode(locationData.eveningPickup),
+        geocode(locationData.eveningDropoff)
+      ]);
+
+      const payload = {
+        locations: {
+          morning: { pickup: mp, dropoff: md },
+          evening: { pickup: ep, dropoff: ed }
+        }
+      };
+
+      const { data } = await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-locations`, payload, { headers:{Authorization:`Bearer ${token}`} });
+      setProfile(data);
+      setLocationData({ 
+        morningPickup: data.locations?.morning?.pickup?.address || data.locations?.morning?.pickup || '', 
+        morningDropoff: data.locations?.morning?.dropoff?.address || data.locations?.morning?.dropoff || '',
+        eveningPickup: data.locations?.evening?.pickup?.address || data.locations?.evening?.pickup || '',
+        eveningDropoff: data.locations?.evening?.dropoff?.address || data.locations?.evening?.dropoff || ''
+      });
+      setIsEditingLocations(false);
     } catch { alert('Failed to update locations'); }
   };
 
@@ -495,16 +530,27 @@ export default function PassengerDashboard() {
                       <Marker position={[driverLocation.lat,driverLocation.lng]} icon={vehicleIcon} zIndexOffset={1000}>
                         <Popup>🚐 Driver's Live Location</Popup>
                       </Marker>
-                      {profile?.pickupLocation?.lat&&(
-                        <Marker position={[profile.pickupLocation.lat,profile.pickupLocation.lng]} icon={pickupIcon}>
-                          <Popup>📍 Your Pickup: {profile.pickupLocation.address}</Popup>
-                        </Marker>
-                      )}
-                      {profile?.dropoffLocation?.lat&&(
-                        <Marker position={[profile.dropoffLocation.lat,profile.dropoffLocation.lng]} icon={dropoffIcon}>
-                          <Popup>🏁 Your Drop-off: {profile.dropoffLocation.address}</Popup>
-                        </Marker>
-                      )}
+                      {(() => {
+                        const period = driverProfile?.activeRouteIndex === 1 ? 'evening' : 'morning';
+                        const locs = profile?.locations?.[period];
+                        // Only show period-specific locations if they exist, otherwise fallback to old ones ONLY IF no locations object exists at all
+                        const pLoc = locs?.pickup?.lat ? locs.pickup : (!profile?.locations ? profile?.pickupLocation : null);
+                        const dLoc = locs?.dropoff?.lat ? locs.dropoff : (!profile?.locations ? profile?.dropoffLocation : null);
+                        return (
+                          <>
+                            {pLoc?.lat && (
+                              <Marker position={[pLoc.lat, pLoc.lng]} icon={pickupIcon}>
+                                <Popup>📍 Your {period} Pickup: {pLoc.address}</Popup>
+                              </Marker>
+                            )}
+                            {dLoc?.lat && (
+                              <Marker position={[dLoc.lat, dLoc.lng]} icon={dropoffIcon}>
+                                <Popup>🏁 Your {period} Drop-off: {dLoc.address}</Popup>
+                              </Marker>
+                            )}
+                          </>
+                        );
+                      })()}
                       {userLocation && (
                         <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
                           <Popup>🔵 Your Current Location</Popup>
@@ -813,80 +859,142 @@ export default function PassengerDashboard() {
 
               {/* Locations */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white font-semibold text-sm flex items-center gap-2"><MapPin className="w-4 h-4 text-amber-400"/>Trip Locations</h2>
-                  {!isEditingLocations&&<button onClick={()=>setIsEditingLocations(true)} className="text-amber-400 text-xs font-semibold hover:text-amber-300">Edit</button>}
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-white font-semibold text-sm flex items-center gap-2"><MapPin className="w-4 h-4 text-sm text-amber-400"/> Pickup & Drop-off</h2>
+                  {!isEditingLocations ? (
+                    <button onClick={()=>setIsEditingLocations(true)} className="text-amber-400 hover:text-amber-300 text-xs font-bold uppercase tracking-wider">Edit Locations</button>
+                  ) : (
+                    <div className="flex gap-3">
+                      <button onClick={()=>setIsEditingLocations(false)} className="text-slate-400 hover:text-white text-xs font-bold uppercase tracking-wider">Cancel</button>
+                      <button onClick={handleSaveLocations} className="text-green-400 hover:text-green-300 text-xs font-bold uppercase tracking-wider">Save Changes</button>
+                    </div>
+                  )}
                 </div>
 
                 {isEditingLocations ? (
-                  <div className="space-y-4">
-                    {[{key:'pickup',label:'Pickup Location',ph:'e.g. Dematagoda Station'},{key:'dropoff',label:'Drop-off Location',ph:'e.g. Kandy Town'}].map(f=>(
-                      <div key={f.key}>
-                        <label className="block text-xs text-slate-400 mb-1.5">{f.label}</label>
-                        <div className="flex gap-2">
-                          <input type="text" value={locationData[f.key+'Location']} onChange={e=>setLocationData({...locationData,[f.key+'Location']:e.target.value})}
-                            placeholder={f.ph}
-                            className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 placeholder-slate-500"/>
-                          <button onClick={()=>handleUseCurrentLocation(f.key)} title="Use current location"
-                            className="p-2.5 bg-slate-700 border border-slate-600 rounded-xl text-slate-400 hover:text-amber-400 hover:border-amber-400/50 transition-colors">
-                            <LocateFixed className="w-4 h-4"/>
-                          </button>
-                          <button onClick={()=>setMapPickingMode(mapPickingMode===f.key?null:f.key)} title="Pick on map"
-                            className={`p-2.5 rounded-xl border transition-colors ${mapPickingMode===f.key?'bg-amber-400 border-amber-400 text-slate-900':'bg-slate-700 border-slate-600 text-slate-400 hover:text-amber-400 hover:border-amber-400/50'}`}>
-                            <MousePointer2 className="w-4 h-4"/>
-                          </button>
+                  <div className="space-y-6">
+                    {[
+                      { period: 'morning', label: 'Morning Route' },
+                      { period: 'evening', label: 'Evening Route' }
+                    ].map(p => (
+                      <div key={p.period} className="p-4 bg-slate-800/50 rounded-xl border border-slate-800">
+                        <h3 className="text-white text-xs font-bold mb-4 uppercase tracking-widest text-slate-400">{p.label}</h3>
+                        <div className="space-y-4">
+                          {['Pickup', 'Dropoff'].map(type => {
+                            const key = p.period + type;
+                            return (
+                              <div key={key}>
+                                <label className="block text-xs font-medium text-slate-400 mb-1.5">{type}</label>
+                                <div className="flex gap-2">
+                                  <div className="relative flex-1">
+                                    <input type="text" value={locationData[key]} onChange={e=>setLocationData(v=>({...v,[key]:e.target.value}))}
+                                      placeholder={`e.g. ${type === 'Pickup' ? 'Station' : 'Office'}`}
+                                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 placeholder-slate-600"/>
+                                    <button onClick={()=>setMapPickingMode(mapPickingMode===key?null:key)}
+                                      className={`absolute right-2 top-1.5 p-1 rounded-lg transition-colors ${mapPickingMode===key?'bg-amber-400 text-slate-900':'text-slate-500 hover:text-amber-400'}`}>
+                                      <MousePointer2 className="w-4 h-4"/>
+                                    </button>
+                                  </div>
+                                  <button onClick={()=>handleUseCurrentLocation(key)} title="Use current location" className="p-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-amber-400 transition-colors">
+                                    <LocateFixed className="w-5 h-5"/>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
 
-                    {mapPickingMode&&(
-                      <div className="h-56 rounded-xl overflow-hidden border-2 border-amber-400/50 relative">
-                        <MapContainer center={[profile?.pickupLocation?.lat||6.9271,profile?.pickupLocation?.lng||79.8612]} zoom={13} style={{height:'100%',width:'100%',zIndex:0}}>
-                          <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+                    {mapPickingMode && (
+                      <div className="rounded-xl overflow-hidden border-2 border-amber-400/50 h-64 relative">
+                        <MapContainer 
+                          center={[
+                            profile?.locations?.[mapPickingMode.startsWith('morning')?'morning':'evening']?.[mapPickingMode.endsWith('Pickup')?'pickup':'dropoff']?.lat || 6.9271, 
+                            profile?.locations?.[mapPickingMode.startsWith('morning')?'morning':'evening']?.[mapPickingMode.endsWith('Pickup')?'pickup':'dropoff']?.lng || 79.8612
+                          ]} 
+                          zoom={13} style={{height:'100%',width:'100%'}}>
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
                           <MapClickHandler/>
-                          {profile?.pickupLocation?.lat&&<Marker position={[profile.pickupLocation.lat,profile.pickupLocation.lng]} icon={pickupIcon}><Popup>Current Pickup</Popup></Marker>}
-                          {profile?.dropoffLocation?.lat&&<Marker position={[profile.dropoffLocation.lat,profile.dropoffLocation.lng]} icon={dropoffIcon}><Popup>Current Drop-off</Popup></Marker>}
+                          {(() => {
+                            const p = mapPickingMode.startsWith('morning') ? 'morning' : 'evening';
+                            const locs = profile?.locations?.[p];
+                            return (
+                              <>
+                                {locs?.pickup?.lat && <Marker position={[locs.pickup.lat, locs.pickup.lng]} icon={pickupIcon}/>}
+                                {locs?.dropoff?.lat && <Marker position={[locs.dropoff.lat, locs.dropoff.lng]} icon={dropoffIcon}/>}
+                              </>
+                            );
+                          })()}
                         </MapContainer>
-                        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-amber-400 text-slate-900 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg">
-                          <MousePointer2 className="w-3 h-3"/> Tap to set {mapPickingMode}
+                        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 px-4 py-1.5 rounded-full text-xs font-bold shadow-lg z-[1000] flex items-center gap-2">
+                          <MousePointer2 className="w-3 h-3"/> Click on map to set {mapPickingMode.replace(/([A-Z])/g, ' $1')}
                         </div>
                       </div>
                     )}
-
-                    <div className="flex gap-2 justify-end">
-                      <button onClick={()=>{setIsEditingLocations(false);setMapPickingMode(null);}} className="px-4 py-2 bg-slate-700 text-slate-300 text-sm rounded-xl hover:bg-slate-600 transition-colors">Cancel</button>
-                      <button onClick={handleSaveLocations} className="px-4 py-2 bg-amber-400 text-slate-900 text-sm font-bold rounded-xl hover:bg-amber-300 transition-colors">Save</button>
-                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="p-3 bg-slate-800 rounded-xl">
-                        <p className="text-xs text-slate-500 mb-1 flex items-center gap-1"><MapPin className="w-3 h-3 text-green-400"/>Pickup</p>
-                        <p className="text-white text-sm font-medium">{profile?.pickupLocation?.address||profile?.pickupLocation||'Not set'}</p>
-                        {profile?.pickupLocation?.lat&&<p className="text-slate-500 text-xs mt-0.5">{profile.pickupLocation.lat.toFixed(4)}, {profile.pickupLocation.lng.toFixed(4)}</p>}
-                      </div>
-                      <div className="p-3 bg-slate-800 rounded-xl">
-                        <p className="text-xs text-slate-500 mb-1 flex items-center gap-1"><MapPin className="w-3 h-3 text-red-400"/>Drop-off</p>
-                        <p className="text-white text-sm font-medium">{profile?.dropoffLocation?.address||profile?.dropoffLocation||'Not set'}</p>
-                        {profile?.dropoffLocation?.lat&&<p className="text-slate-500 text-xs mt-0.5">{profile.dropoffLocation.lat.toFixed(4)}, {profile.dropoffLocation.lng.toFixed(4)}</p>}
-                      </div>
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {[
+                        { period: 'morning', label: 'Morning Route' },
+                        { period: 'evening', label: 'Evening Route' }
+                      ].map(p => {
+                        const periodLocs = profile?.locations?.[p.period];
+                        const locs = (periodLocs?.pickup || periodLocs?.dropoff) 
+                          ? periodLocs 
+                          : (!profile?.locations ? { pickup: profile?.pickupLocation, dropoff: profile?.dropoffLocation } : null);
+                        return (
+                          <div key={p.period} className="p-4 bg-slate-800/30 rounded-xl border border-slate-800/50">
+                            <h3 className="text-amber-400 text-xs font-bold mb-4 uppercase tracking-widest">{p.label}</h3>
+                            <div className="space-y-4">
+                              <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0 mt-0.5"><MapPin className="w-4 h-4 text-green-400"/></div>
+                                <div><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Pickup</p><p className="text-slate-200 text-sm font-medium text-wrap break-words">{locs?.pickup?.address || locs?.pickup || 'Not set'}</p></div>
+                              </div>
+                              <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-0.5"><MapPin className="w-4 h-4 text-red-400"/></div>
+                                <div><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Drop-off</p><p className="text-slate-200 text-sm font-medium text-wrap break-words">{locs?.dropoff?.address || locs?.dropoff || 'Not set'}</p></div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    {profile?.pickupLocation?.lat&&(
-                      <div className="h-44 rounded-xl overflow-hidden border border-slate-700">
-                        <MapContainer center={[profile.pickupLocation.lat,profile.pickupLocation.lng]} zoom={13} style={{height:'100%',width:'100%',zIndex:0}}>
-                          <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-                          <Marker position={[profile.pickupLocation.lat,profile.pickupLocation.lng]} icon={pickupIcon}><Popup>Pickup</Popup></Marker>
-                          {profile?.dropoffLocation?.lat&&(
-                            <>
-                              <Marker position={[profile.dropoffLocation.lat,profile.dropoffLocation.lng]} icon={dropoffIcon}><Popup>Drop-off</Popup></Marker>
-                              <Polyline positions={[[profile.pickupLocation.lat,profile.pickupLocation.lng],[profile.dropoffLocation.lat,profile.dropoffLocation.lng]]} color="#f59e0b" weight={3} dashArray="8 6"/>
-                            </>
-                          )}
-                        </MapContainer>
+
+                    {(profile?.locations || profile?.pickupLocation || profile?.dropoffLocation) && (
+                      <div className="mt-6">
+                        <p className="text-slate-400 text-xs font-bold mb-3 uppercase tracking-widest flex items-center gap-2">
+                          <Navigation className="w-3 h-3 text-amber-400"/> Location Preview
+                        </p>
+                        <div className="h-64 rounded-2xl overflow-hidden border border-slate-800 relative shadow-inner">
+                          <MapContainer 
+                            center={[
+                              profile?.locations?.morning?.pickup?.lat || profile?.pickupLocation?.lat || 6.9271, 
+                              profile?.locations?.morning?.pickup?.lng || profile?.pickupLocation?.lng || 79.8612
+                            ]} 
+                            zoom={12} style={{height:'100%',width:'100%',zIndex:0}}>
+                            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+                            {[
+                              { p: 'morning', icon: pickupIcon, label: 'Morning Pickup' },
+                              { p: 'morning', type: 'dropoff', icon: dropoffIcon, label: 'Morning Drop-off' },
+                              { p: 'evening', icon: pickupIcon, label: 'Evening Pickup' },
+                              { p: 'evening', type: 'dropoff', icon: dropoffIcon, label: 'Evening Drop-off' }
+                            ].map((item, idx) => {
+                              const loc = profile?.locations?.[item.p]?.[item.type || 'pickup'];
+                              if (!loc?.lat) return null;
+                              return (
+                                <Marker key={idx} position={[loc.lat, loc.lng]} icon={item.icon}>
+                                  <Popup><span className="font-bold">{item.label}:</span><br/>{loc.address}</Popup>
+                                </Marker>
+                              );
+                            })}
+                          </MapContainer>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-2 italic text-center">Verify your locations on the map. If they are incorrect, click "Edit Locations" to fix them.</p>
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
               </div>
             </div>

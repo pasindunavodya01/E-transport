@@ -142,11 +142,29 @@ router.get('/my-driver', verifyToken, async (req, res) => {
 router.put('/update-locations', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { pickupLocation, dropoffLocation } = req.body;
+    const { pickupLocation, dropoffLocation, morningLocation, eveningLocation, locations } = req.body;
     
+    let updateData = {};
+    if (pickupLocation) updateData.pickupLocation = pickupLocation;
+    if (dropoffLocation) updateData.dropoffLocation = dropoffLocation;
+
+    // Harmonize locations update
+    if (locations) {
+      // Use the nested locations structure directly if provided (from Web)
+      updateData.locations = locations;
+    } else if (morningLocation || eveningLocation) {
+      // Handle individual period updates (from Mobile or legacy)
+      const passenger = await User.findOne({ uid, role: 'passenger' });
+      const currentLocs = passenger.locations || { morning: {}, evening: {} };
+      updateData.locations = {
+        morning: morningLocation || currentLocs.morning,
+        evening: eveningLocation || currentLocs.evening
+      };
+    }
+
     const passenger = await User.findOneAndUpdate(
       { uid, role: 'passenger' },
-      { pickupLocation, dropoffLocation },
+      { $set: updateData },
       { new: true }
     );
 
@@ -300,18 +318,24 @@ router.put('/update-bank-details', verifyToken, async (req, res) => {
 router.put('/start-trip', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid;
+    const { activeRouteIndex } = req.body;
+    
     const driver = await User.findOneAndUpdate(
       { uid, role: 'driver' },
-      { isTripActive: true },
+      { isTripActive: true, activeRouteIndex: activeRouteIndex !== undefined ? activeRouteIndex : 0 },
       { new: true }
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
-    res.json({ isTripActive: driver.isTripActive });
+    res.json({ isTripActive: driver.isTripActive, activeRouteIndex: driver.activeRouteIndex });
 
     // Emit socket event for trip status
     const io = req.app.get('socketio');
     if (io) {
-      io.emit(`trip_status_update_${uid}`, { driverId: uid, isTripActive: true });
+      io.emit(`trip_status_update_${uid}`, { 
+        driverId: uid, 
+        isTripActive: true, 
+        activeRouteIndex: driver.activeRouteIndex 
+      });
     }
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -324,7 +348,7 @@ router.put('/end-trip', verifyToken, async (req, res) => {
     const uid = req.user.uid;
     const driver = await User.findOneAndUpdate(
       { uid, role: 'driver' },
-      { isTripActive: false },
+      { isTripActive: false, activeRouteIndex: null },
       { new: true }
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
