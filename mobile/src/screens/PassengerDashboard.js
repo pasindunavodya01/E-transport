@@ -428,6 +428,7 @@ export default function PassengerDashboard({ route, navigation }) {
             style={{ flex:1 }}
             region={{ latitude:driverLocation.lat, longitude:driverLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
             mapType={Platform.OS==='android'?'none':'standard'}
+            showsUserLocation={true}
           >
             {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
             <Marker coordinate={{ latitude:driverLocation.lat, longitude:driverLocation.lng }} zIndex={1000}>
@@ -447,15 +448,17 @@ export default function PassengerDashboard({ route, navigation }) {
               if (!r.polyline) return null;
               let coords = [];
               try {
-                coords = JSON.parse(r.polyline);
-                // Android requires valid latitude/longitude numbers and at least 2 points
-                if (!Array.isArray(coords) || coords.length < 1) return null;
-                coords = coords.filter(c => 
-                  c && 
+                const points = JSON.parse(r.polyline);
+                if (!Array.isArray(points)) return null;
+                // Support both {latitude, longitude} and {lat, lng}
+                coords = points.map(p => ({
+                  latitude: p.latitude || p.lat,
+                  longitude: p.longitude || p.lng
+                })).filter(c => 
                   typeof c.latitude === 'number' && !isNaN(c.latitude) && 
                   typeof c.longitude === 'number' && !isNaN(c.longitude)
                 );
-                if (coords.length < 1) return null;
+                if (coords.length < 2) return null;
               } catch (err) {
                 console.error('Polyline parse error:', err);
                 return null;

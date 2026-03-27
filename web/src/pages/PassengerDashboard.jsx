@@ -31,6 +31,10 @@ const dropoffIcon = L.divIcon({
   html:`<div style="color:#ef4444;filter:drop-shadow(0 3px 3px rgba(0,0,0,0.5));transform:translateY(-4px);"><svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="currentColor" stroke="white" stroke-width="1.5"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white"/></svg></div>`,
   className:'',iconSize:[38,38],iconAnchor:[19,38],popupAnchor:[0,-38]
 });
+const userIcon = L.divIcon({
+  html:`<div style="background-color:#3b82f6;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px rgba(59,130,246,0.6);border:3px solid white;"><div style="width:8px;height:8px;background-color:white;border-radius:50%;"></div></div>`,
+  className:'',iconSize:[24,24],iconAnchor:[12,12]
+});
 
 const TABS = [
   { id:'overview',  label:'Overview',      icon:BarChart2 },
@@ -77,6 +81,7 @@ export default function PassengerDashboard() {
 
   const [driverLocation, setDriverLocation] = useState(null);
   const [isDriverActive, setIsDriverActive] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
 
   const navigate = useNavigate();
 
@@ -109,6 +114,18 @@ export default function PassengerDashboard() {
     };
     init();
   }, [navigate]);
+
+  useEffect(() => {
+    let watchId;
+    if (activeTab === 'tracking') {
+      watchId = navigator.geolocation.watchPosition(
+        pos => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        err => console.error('Tracking error:', err),
+        { enableHighAccuracy: true }
+      );
+    }
+    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
+  }, [activeTab]);
 
   useEffect(() => {
     let sock;
@@ -488,9 +505,24 @@ export default function PassengerDashboard() {
                           <Popup>🏁 Your Drop-off: {profile.dropoffLocation.address}</Popup>
                         </Marker>
                       )}
-                      {driverProfile?.routes?.map((r,i)=> r.polyline && (
-                        <Polyline key={i} positions={JSON.parse(r.polyline).map(p=>[p.lat,p.lng])} color="#f59e0b" weight={4} opacity={0.6} dashArray="5,10"/>
-                      ))}
+                      {userLocation && (
+                        <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
+                          <Popup>🔵 Your Current Location</Popup>
+                        </Marker>
+                      )}
+                      {driverProfile?.routes?.map((r,i)=> {
+                        if (!r.polyline) return null;
+                        try {
+                          const points = JSON.parse(r.polyline);
+                          if (!Array.isArray(points)) return null;
+                          const positions = points.map(p => [p.latitude || p.lat, p.longitude || p.lng])
+                            .filter(p => typeof p[0] === 'number' && !isNaN(p[0]));
+                          return <Polyline key={i} positions={positions} color="#f59e0b" weight={4} opacity={0.6} dashArray="5,10"/>;
+                        } catch (e) {
+                          console.error('Polyline parse error:', e);
+                          return null;
+                        }
+                      })}
                     </MapContainer>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-500 bg-slate-900">

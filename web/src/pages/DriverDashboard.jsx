@@ -85,7 +85,17 @@ export default function DriverDashboard() {
           setSystemPayments(sysRes.data||[]);
         } catch(_){}
         if (data.routes) {
-          const polys = data.routes.filter(r=>r.polyline).map(r=>({points:JSON.parse(r.polyline)}));
+          const polys = data.routes.filter(r=>r.polyline).map(r=>{
+            try {
+              const points = JSON.parse(r.polyline);
+              if (!Array.isArray(points)) return null;
+              const validPoints = points.map(p => ({
+                lat: p.latitude || p.lat,
+                lng: p.longitude || p.lng
+              })).filter(p => typeof p.lat === 'number');
+              return { points: validPoints };
+            } catch { return null; }
+          }).filter(p => p !== null);
           setRoutePolylines(polys);
         }
       } catch(e){ navigate('/login'); } finally { setLoading(false); }
@@ -151,7 +161,18 @@ export default function DriverDashboard() {
       }));
       const{data}=await axios.put(`${import.meta.env.VITE_API_URL}/auth/update-route`,{routes:enrichedRoutes,totalSeats:parseInt(routeData.totalSeats)||0,pricePerKm:parseFloat(routeData.pricePerKm)||0},{headers:{Authorization:`Bearer ${localStorage.getItem('userToken')}`}});
       setProfile(data);
-      setRoutePolylines((data.routes||[]).filter(r=>r.polyline).map(r=>({points:JSON.parse(r.polyline)})));
+      const polys = (data.routes||[]).filter(r=>r.polyline).map(r=>{
+        try {
+          const points = JSON.parse(r.polyline);
+          if (!Array.isArray(points)) return null;
+          const validPoints = points.map(p => ({
+            lat: p.latitude || p.lat,
+            lng: p.longitude || p.lng
+          })).filter(p => typeof p.lat === 'number');
+          return { points: validPoints };
+        } catch { return null; }
+      }).filter(p => p !== null);
+      setRoutePolylines(polys);
       setIsEditingRoute(false);
     } catch(e){ alert('Failed to update route information'); }
   };

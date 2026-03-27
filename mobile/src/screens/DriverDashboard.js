@@ -121,8 +121,11 @@ export default function DriverDashboard({ route, navigation }) {
         try {
           const points = JSON.parse(r.polyline);
           if (Array.isArray(points) && points.length > 0) {
-            const validPoints = points.filter(c => 
-              c && typeof c.latitude === 'number' && !isNaN(c.latitude) && 
+            const validPoints = points.map(p => ({
+              latitude: p.latitude || p.lat,
+              longitude: p.longitude || p.lng
+            })).filter(c => 
+              typeof c.latitude === 'number' && !isNaN(c.latitude) && 
               typeof c.longitude === 'number' && !isNaN(c.longitude)
             );
             return validPoints.length > 0 ? { points: validPoints } : null;
