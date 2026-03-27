@@ -165,17 +165,39 @@ export default function PassengerDashboard({ route, navigation }) {
   useEffect(() => { fetchDriverDetails(); fetchPayments(); }, []);
 
   useEffect(() => {
-    if (driverProfile?.isTripActive) {
-      setIsDriverActive(true);
-      if (driverProfile.currentLocation) setDriverLocation(driverProfile.currentLocation);
+    if (driverProfile?.uid) {
+      if (driverProfile.isTripActive) {
+        setIsDriverActive(true);
+        if (driverProfile.currentLocation) setDriverLocation(driverProfile.currentLocation);
+      } else {
+        setIsDriverActive(false);
+        setDriverLocation(null);
+      }
+
+      // Always connect to socket if we have a driver, to listen for status changes
       socketRef.current = io(process.env.EXPO_PUBLIC_API_URL.replace('/api',''), { transports:['websocket'] });
-      socketRef.current.on(`live_location_${driverProfile.uid}`, loc => { setIsDriverActive(true); setDriverLocation(loc); });
-      socketRef.current.on(`trip_status_update_${driverProfile.uid}`, d => { setIsDriverActive(d.isTripActive); fetchDriverDetails(); });
-    } else {
-      setIsDriverActive(false); setDriverLocation(null);
+      
+      socketRef.current.on(`live_location_${driverProfile.uid}`, loc => { 
+        setIsDriverActive(true); 
+        setDriverLocation(loc); 
+      });
+
+      socketRef.current.on(`trip_status_update_${driverProfile.uid}`, d => { 
+        console.log('[SOCKET] trip_status_update:', d);
+        setIsDriverActive(d.isTripActive); 
+        if (d.isTripActive) {
+          fetchDriverDetails(); // Refresh to get latest state/route
+        } else {
+          setDriverLocation(null);
+        }
+      });
     }
-    return () => { socketRef.current?.disconnect(); socketRef.current = null; };
-  }, [driverProfile]);
+
+    return () => { 
+      socketRef.current?.disconnect(); 
+      socketRef.current = null; 
+    };
+  }, [driverProfile?.uid]);
 
   const fetchDriverDetails = async () => {
     try {

@@ -137,21 +137,38 @@ export default function PassengerDashboard() {
 
   useEffect(() => {
     let sock;
-    if (driverProfile?.isTripActive) {
-      setIsDriverActive(true);
-      if (driverProfile.currentLocation) setDriverLocation(driverProfile.currentLocation);
+    if (driverProfile?.uid) {
+      if (driverProfile.isTripActive) {
+        setIsDriverActive(true);
+        if (driverProfile.currentLocation) setDriverLocation(driverProfile.currentLocation);
+      } else {
+        setIsDriverActive(false);
+        setDriverLocation(null);
+      }
+
+      // Always connect to socket if we have a driver, to listen for status changes
       sock = io(import.meta.env.VITE_API_URL.replace('/api',''), { transports:['websocket'] });
-      sock.on(`live_location_${driverProfile.uid}`, loc => { setIsDriverActive(true); setDriverLocation(loc); });
+
+      sock.on(`live_location_${driverProfile.uid}`, loc => { 
+        setIsDriverActive(true); 
+        setDriverLocation(loc); 
+      });
+
       sock.on(`trip_status_update_${driverProfile.uid}`, d => { 
         setIsDriverActive(d.isTripActive);
-        setDriverProfile(prev => ({ ...prev, activeRouteIndex: d.activeRouteIndex }));
+        if (d.isTripActive) {
+          // Refresh driver details to get active route index and other trip state
+          const token = localStorage.getItem('userToken');
+          axios.get(`${import.meta.env.VITE_API_URL}/auth/my-driver`, { headers:{Authorization:`Bearer ${token}`} })
+            .then(dr => setDriverProfile(dr.data))
+            .catch(console.error);
+        } else {
+          setDriverLocation(null);
+        }
       });
-    } else {
-      setIsDriverActive(false);
-      setDriverLocation(null);
     }
     return () => { if(sock) sock.disconnect(); };
-  }, [driverProfile]);
+  }, [driverProfile?.uid]);
 
   const handleLogout = () => { localStorage.removeItem('userToken'); localStorage.removeItem('userRole'); navigate('/login'); };
 
