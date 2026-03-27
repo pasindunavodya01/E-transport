@@ -114,9 +114,24 @@ export default function DriverDashboard({ route, navigation }) {
   });
   const [isTripActive,    setIsTripActive]    = useState(initialUser?.isTripActive || false);
   const [currentLocation, setCurrentLocation] = useState(initialUser?.currentLocation || null);
-  const [routePolylines,  setRoutePolylines]  = useState(
-    (initialUser?.routes || []).filter(r => r.polyline).map(r => ({ points: JSON.parse(r.polyline) }))
-  );
+  const [routePolylines,  setRoutePolylines]  = useState(() => {
+    return (initialUser?.routes || [])
+      .filter(r => r.polyline)
+      .map(r => {
+        try {
+          const points = JSON.parse(r.polyline);
+          if (Array.isArray(points) && points.length > 0) {
+            const validPoints = points.filter(c => 
+              c && typeof c.latitude === 'number' && !isNaN(c.latitude) && 
+              typeof c.longitude === 'number' && !isNaN(c.longitude)
+            );
+            return validPoints.length > 0 ? { points: validPoints } : null;
+          }
+        } catch (e) { console.error('Initial polyline parse error:', e); }
+        return null;
+      })
+      .filter(Boolean);
+  });
   const [allPayments,     setAllPayments]     = useState([]);
   const [reviewNotes,     setReviewNotes]     = useState({});
   const [isEditingBank,   setIsEditingBank]   = useState(false);
@@ -242,7 +257,23 @@ export default function DriverDashboard({ route, navigation }) {
         pricePerKm: parseFloat(routeData.pricePerKm) || 0,
       }, { headers: { Authorization: `Bearer ${token}` } });
       setUser(data);
-      setRoutePolylines((data.routes||[]).filter(r=>r.polyline).map(r=>({points:JSON.parse(r.polyline)})));
+      const newPolylines = (data.routes || [])
+        .filter(r => r.polyline)
+        .map(r => {
+          try {
+            const points = JSON.parse(r.polyline);
+            if (Array.isArray(points) && points.length > 0) {
+              const validPoints = points.filter(c => 
+                c && typeof c.latitude === 'number' && !isNaN(c.latitude) && 
+                typeof c.longitude === 'number' && !isNaN(c.longitude)
+              );
+              return validPoints.length > 0 ? { points: validPoints } : null;
+            }
+          } catch (e) { console.error('Save route polyline parse error:', e); }
+          return null;
+        })
+        .filter(Boolean);
+      setRoutePolylines(newPolylines);
       setIsEditingRoute(false);
     } catch { Alert.alert('Error', 'Failed to update route.'); }
   };
@@ -397,33 +428,43 @@ export default function DriverDashboard({ route, navigation }) {
       </View>
 
       {isTripActive && currentLocation ? (
-        <MapView
-          style={{ flex:1 }}
-          region={{ latitude:currentLocation.lat, longitude:currentLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
-          mapType={Platform.OS==='android'?'none':'standard'}
-        >
-          {Platform.OS==='android' && <UrlTile urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
-          <Marker coordinate={{ latitude:currentLocation.lat, longitude:currentLocation.lng }} zIndex={1000}>
-            <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
-          </Marker>
-          {routePolylines.map((poly,i) => (
-            <Polyline key={i} coordinates={poly.points} strokeColor={C.amber} strokeWidth={4}/>
-          ))}
-          {passengers.map(p => (
-            <React.Fragment key={p._id}>
-              {p.pickupLocation?.lat && (
-                <Marker coordinate={{ latitude:p.pickupLocation.lat, longitude:p.pickupLocation.lng }} title={`${p.name}: Pickup`}>
-                  <View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
-                </Marker>
-              )}
-              {p.dropoffLocation?.lat && (
-                <Marker coordinate={{ latitude:p.dropoffLocation.lat, longitude:p.dropoffLocation.lng }} title={`${p.name}: Drop-off`}>
-                  <View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={18} color="white"/></View>
-                </Marker>
-              )}
-            </React.Fragment>
-          ))}
-        </MapView>
+        <>
+          <MapView
+            style={{ flex:1 }}
+            region={{ latitude:currentLocation.lat, longitude:currentLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
+            mapType={Platform.OS==='android'?'none':'standard'}
+          >
+            {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
+            <Marker coordinate={{ latitude:currentLocation.lat, longitude:currentLocation.lng }} zIndex={1000}>
+              <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
+            </Marker>
+            {routePolylines.map((poly,i) => {
+              if (!poly || !poly.points || poly.points.length < 1) return null;
+              return (
+                <Polyline key={i} coordinates={poly.points} strokeColor={C.amber} strokeWidth={4}/>
+              );
+            })}
+            {passengers.map(p => (
+              <React.Fragment key={p._id}>
+                {p.pickupLocation?.lat && (
+                  <Marker coordinate={{ latitude:p.pickupLocation.lat, longitude:p.pickupLocation.lng }} title={`${p.name}: Pickup`}>
+                    <View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+                  </Marker>
+                )}
+                {p.dropoffLocation?.lat && (
+                  <Marker coordinate={{ latitude:p.dropoffLocation.lat, longitude:p.dropoffLocation.lng }} title={`${p.name}: Drop-off`}>
+                    <View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={18} color="white"/></View>
+                  </Marker>
+                )}
+              </React.Fragment>
+            ))}
+          </MapView>
+          {Platform.OS === 'android' && (
+            <View style={s.mapAttribution}>
+              <Text style={s.mapAttributionText}>© OpenStreetMap contributors, © CARTO</Text>
+            </View>
+          )}
+        </>
       ) : (
         <View style={s.mapPlaceholder}>
           <MaterialIcons name="navigation" size={52} color={C.textMuted}/>
@@ -996,5 +1037,19 @@ const s = StyleSheet.create({
 
   statusBadge:      { paddingHorizontal:10, paddingVertical:4, borderRadius:10 },
   statusBadgeText:  { fontSize:11, fontWeight:'800' },
-  emptyText:        { color:C.textMuted, fontStyle:'italic', fontSize:13, textAlign:'center', paddingVertical:8 },
+  emptyText: { color: C.textMuted, fontStyle: 'italic', fontSize: 13, textAlign:'center', paddingVertical:8 },
+  mapAttribution: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  mapAttributionText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 7,
+    fontWeight: '600',
+  },
 });

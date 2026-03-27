@@ -423,29 +423,54 @@ export default function PassengerDashboard({ route, navigation }) {
       </View>
 
       {isDriverActive && driverLocation ? (
-        <MapView
-          style={{ flex:1 }}
-          region={{ latitude:driverLocation.lat, longitude:driverLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
-          mapType={Platform.OS==='android'?'none':'standard'}
-        >
-          {Platform.OS==='android' && <UrlTile urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
-          <Marker coordinate={{ latitude:driverLocation.lat, longitude:driverLocation.lng }} zIndex={1000}>
-            <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
-          </Marker>
-          {currentUser?.pickupLocation?.lat && (
-            <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }} title="Your Pickup">
-              <View style={[s.pinMarker, { backgroundColor:C.green }]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+        <>
+          <MapView
+            style={{ flex:1 }}
+            region={{ latitude:driverLocation.lat, longitude:driverLocation.lng, latitudeDelta:0.01, longitudeDelta:0.01 }}
+            mapType={Platform.OS==='android'?'none':'standard'}
+          >
+            {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
+            <Marker coordinate={{ latitude:driverLocation.lat, longitude:driverLocation.lng }} zIndex={1000}>
+              <View style={s.vehicleMarker}><FontAwesome5 name="bus" size={16} color="white"/></View>
             </Marker>
+            {currentUser?.pickupLocation?.lat && (
+              <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }} title="Your Pickup">
+                <View style={[s.pinMarker, { backgroundColor:C.green }]}><MaterialIcons name="person-pin-circle" size={18} color="white"/></View>
+              </Marker>
+            )}
+            {currentUser?.dropoffLocation?.lat && (
+              <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }} title="Your Drop-off">
+                <View style={[s.pinMarker, { backgroundColor:C.red }]}><MaterialIcons name="location-on" size={18} color="white"/></View>
+              </Marker>
+            )}
+            {driverProfile?.routes?.map((r,i) => {
+              if (!r.polyline) return null;
+              let coords = [];
+              try {
+                coords = JSON.parse(r.polyline);
+                // Android requires valid latitude/longitude numbers and at least 2 points
+                if (!Array.isArray(coords) || coords.length < 1) return null;
+                coords = coords.filter(c => 
+                  c && 
+                  typeof c.latitude === 'number' && !isNaN(c.latitude) && 
+                  typeof c.longitude === 'number' && !isNaN(c.longitude)
+                );
+                if (coords.length < 1) return null;
+              } catch (err) {
+                console.error('Polyline parse error:', err);
+                return null;
+              }
+              return (
+                <Polyline key={i} coordinates={coords} strokeColor={C.amber} strokeWidth={4}/>
+              );
+            })}
+          </MapView>
+          {Platform.OS==='android' && (
+            <View style={s.mapAttribution}>
+              <Text style={s.mapAttributionText}>© OpenStreetMap contributors, © CARTO</Text>
+            </View>
           )}
-          {currentUser?.dropoffLocation?.lat && (
-            <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }} title="Your Drop-off">
-              <View style={[s.pinMarker, { backgroundColor:C.red }]}><MaterialIcons name="location-on" size={18} color="white"/></View>
-            </Marker>
-          )}
-          {driverProfile?.routes?.map((r,i) => r.polyline && (
-            <Polyline key={i} coordinates={JSON.parse(r.polyline)} strokeColor={C.amber} strokeWidth={4}/>
-          ))}
-        </MapView>
+        </>
       ) : (
         <View style={s.mapPlaceholder}>
           <MaterialIcons name="navigation" size={48} color={C.textMuted} />
@@ -709,7 +734,7 @@ export default function PassengerDashboard({ route, navigation }) {
                   onPress={handleMapPress}
                   mapType={Platform.OS==='android'?'none':'standard'}
                 >
-                  {Platform.OS==='android' && <UrlTile urlTemplate="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
+                  {Platform.OS==='android' && <UrlTile urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png" maximumZ={19} flipY={false}/>}
                   {currentUser?.pickupLocation?.lat && <Marker coordinate={{ latitude:currentUser.pickupLocation.lat, longitude:currentUser.pickupLocation.lng }}><View style={[s.pinMarker,{backgroundColor:C.green}]}><MaterialIcons name="person-pin-circle" size={16} color="white"/></View></Marker>}
                   {currentUser?.dropoffLocation?.lat && <Marker coordinate={{ latitude:currentUser.dropoffLocation.lat, longitude:currentUser.dropoffLocation.lng }}><View style={[s.pinMarker,{backgroundColor:C.red}]}><MaterialIcons name="location-on" size={16} color="white"/></View></Marker>}
                 </MapView>
@@ -922,4 +947,18 @@ const s = StyleSheet.create({
   mapOverlayText: { color:C.bg, fontSize:13, fontWeight:'800' },
 
   emptyText:     { color:C.textMuted, fontStyle:'italic', fontSize:13 },
+  mapAttribution: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  mapAttributionText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 7,
+    fontWeight: '600',
+  },
 });
