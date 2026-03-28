@@ -74,7 +74,7 @@ router.get('/passengers', verifyToken, async (req, res) => {
     const passengers = await User.find({
       role: 'passenger',
       chosenVehicleNumber: driver.vehicleNumber
-    }).select('-__v -uid'); // Exclude sensitive/internal fields
+    }).select('-__v'); // Exclude sensitive/internal fields (keep uid for sockets)
 
     res.json(passengers);
   } catch (error) {
@@ -125,7 +125,7 @@ router.get('/my-driver', verifyToken, async (req, res) => {
     const driver = await User.findOne({
       role: 'driver',
       vehicleNumber: passenger.chosenVehicleNumber
-    }).select('-__v -uid'); 
+    }).select('-__v'); 
 
     if (!driver) {
       return res.status(404).json({ message: 'Assigned driver not found' });
@@ -378,6 +378,13 @@ router.put('/update-location', verifyToken, async (req, res) => {
     );
     
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    
+    // Emit socket event for live location
+    const io = req.app.get('socketio');
+    if (io && driver.isTripActive) {
+      io.emit(`live_location_${uid}`, { lat, lng, driverId: uid });
+    }
+
     res.json({ currentLocation: driver.currentLocation });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
