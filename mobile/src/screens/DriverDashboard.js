@@ -198,17 +198,24 @@ export default function DriverDashboard({ route, navigation }) {
         setCurrentLocation(null);
       } else {
         // Start trip - requires route select if not passed
-        if (routeIdx === undefined && user?.routes?.length > 1) {
+        // React Native onPress passes an event object; ignore it
+        const cleanIdx = typeof routeIdx === 'number' ? routeIdx : undefined;
+
+        if (cleanIdx === undefined && user?.routes?.length > 1) {
           setShowRoutePicker(true);
           return;
         }
-        const idx = routeIdx !== undefined ? routeIdx : 0;
+
+        const idx = cleanIdx !== undefined ? cleanIdx : 0;
         const { data } = await axios.put(`${API}/start-trip`, { activeRouteIndex: idx }, { headers: { Authorization: `Bearer ${token}` } });
         setIsTripActive(data.isTripActive);
         setActiveRouteIndex(data.activeRouteIndex);
         setShowRoutePicker(false);
       }
-    } catch { Alert.alert('Error', 'Could not toggle trip state.'); }
+    } catch (err) {
+      console.error('Toggle trip error:', err.response?.data || err.message);
+      Alert.alert('Error', 'Could not toggle trip state.');
+    }
   };
 
   // ── data fetchers ─────────────────────────────────────────────
@@ -437,7 +444,7 @@ export default function DriverDashboard({ route, navigation }) {
           <Text style={s.trackingTitle}>Live Location Broadcast</Text>
           <Text style={s.trackingSub}>{isTripActive ? 'Passengers can see your location' : 'Start trip to broadcast your position'}</Text>
         </View>
-        <TouchableOpacity onPress={toggleTrip}
+        <TouchableOpacity onPress={() => toggleTrip()}
           style={[s.tripToggleBtn, { backgroundColor: isTripActive ? C.redDim : C.greenDim, borderColor: isTripActive ? C.red : C.green }]}>
           <View style={[s.liveDot, { backgroundColor: isTripActive ? C.red : C.green }]}/>
           <Text style={[s.tripToggleText, { color: isTripActive ? C.red : C.green }]}>
