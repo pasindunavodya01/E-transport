@@ -11,6 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
 import { geocodeAddress, fetchRouteAlternatives, reverseGeocode } from '../services/mapServices';
+import GoogleAd from '../components/GoogleAd';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -419,6 +420,13 @@ export default function PassengerDashboard() {
           })}
         </nav>
 
+        {/* Sidebar Ad */}
+        <div className="p-3">
+          <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-2 flex justify-center">
+            <GoogleAd slot="1234567891" style={{ display: 'block', width: '120px', height: '200px' }} format="vertical" responsive="false" />
+          </div>
+        </div>
+
         <div className="p-3 border-t border-slate-800">
           <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors">
             <LogOut className="w-4 h-4"/><span>Sign Out</span>
@@ -464,6 +472,11 @@ export default function PassengerDashboard() {
                     <p className="text-slate-500 text-xs mt-0.5">{c.label}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Ad Banner */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex justify-center">
+                <GoogleAd slot="1234567892" style={{ display: 'block', width: '468px', height: '60px' }} />
               </div>
 
               {/* Driver info card */}
@@ -895,7 +908,7 @@ export default function PassengerDashboard() {
                       { period: 'evening', label: 'Evening Route' }
                     ].map(p => (
                       <div key={p.period} className="p-4 bg-slate-800/50 rounded-xl border border-slate-800">
-                        <h3 className="text-white text-xs font-bold mb-4 uppercase tracking-widest text-slate-400">{p.label}</h3>
+                        <h3 className="text-white text-xs font-bold mb-4 uppercase tracking-widest">{p.label}</h3>
                         <div className="space-y-4">
                           {['Pickup', 'Dropoff'].map(type => {
                             const key = p.period + type;
@@ -1016,6 +1029,11 @@ export default function PassengerDashboard() {
               </div>
             </div>
           )}
+
+          {/* Google AdSense Banner */}
+          <div className="mt-8 flex justify-center">
+            <GoogleAd slot="1234567890" style={{ display: 'block', width: '728px', height: '90px' }} />
+          </div>
 
         </main>
       </div>

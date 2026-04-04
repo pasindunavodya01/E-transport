@@ -11,6 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
 import { geocodeAddress, fetchRoutePolyline, fetchRouteAlternatives } from '../services/mapServices';
+import GoogleAd from '../components/GoogleAd';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -319,6 +320,13 @@ export default function DriverDashboard() {
           })}
         </nav>
 
+        {/* Sidebar Ad */}
+        <div className="p-3">
+          <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-2 flex justify-center">
+            <GoogleAd slot="1234567891" style={{ display: 'block', width: '120px', height: '200px' }} format="vertical" responsive="false" />
+          </div>
+        </div>
+
         {/* Logout */}
         <div className="p-3 border-t border-slate-800">
           <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors">
@@ -372,6 +380,11 @@ export default function DriverDashboard() {
                     <p className="text-slate-500 text-xs mt-0.5">{c.label}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Ad Banner */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex justify-center">
+                <GoogleAd slot="1234567892" style={{ display: 'block', width: '468px', height: '60px' }} />
               </div>
 
               {/* Today's ride summary */}
@@ -823,6 +836,11 @@ export default function DriverDashboard() {
               </div>
             </div>
           )}
+
+          {/* Google AdSense Banner */}
+          <div className="mt-8 flex justify-center">
+            <GoogleAd slot="1234567890" style={{ display: 'block', width: '728px', height: '90px' }} />
+          </div>
 
         </main>
       </div>

@@ -4,6 +4,7 @@ import { auth, isMockAuth, mockLogin } from '../firebase';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { Mail, Lock, LogIn, KeyRound } from 'lucide-react';
 import axios from 'axios';
+import GoogleAd from '../components/GoogleAd';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -146,6 +147,11 @@ export default function Login() {
               </Link>
             </p>
           </div>
+        </div>
+
+        {/* Google AdSense Banner */}
+        <div className="mt-8 flex justify-center">
+          <GoogleAd slot="1234567890" style={{ display: 'block', width: '728px', height: '90px' }} />
         </div>
       </div>
     </div>

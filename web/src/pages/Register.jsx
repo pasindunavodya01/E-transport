@@ -4,6 +4,7 @@ import { auth, isMockAuth, mockRegister } from '../firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { User, Mail, Lock, Phone, Car, Hash, UserPlus } from 'lucide-react';
 import axios from 'axios';
+import GoogleAd from '../components/GoogleAd';
 
 export default function Register() {
   const [role, setRole] = useState('passenger'); // 'driver' or 'passenger'
@@ -182,6 +183,11 @@ export default function Register() {
               </Link>
             </p>
           </div>
+        </div>
+
+        {/* Google AdSense Banner */}
+        <div className="mt-8 flex justify-center">
+          <GoogleAd slot="1234567890" style={{ display: 'block', width: '728px', height: '90px' }} />
         </div>
       </div>
     </div>
