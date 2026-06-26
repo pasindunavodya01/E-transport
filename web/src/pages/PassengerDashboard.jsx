@@ -420,8 +420,8 @@ export default function PassengerDashboard() {
           })}
         </nav>
 
-        {/* Sidebar Ad */}
-        <div className="p-3">
+        {/* Sidebar Ad - hidden on mobile to prevent overlap with nav items */}
+        <div className="p-3 hidden lg:block">
           <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-2 flex justify-center">
             <GoogleAd slot="1234567891" style={{ display: 'block', width: '120px', height: '200px' }} format="vertical" responsive="false" />
           </div>
@@ -476,7 +476,7 @@ export default function PassengerDashboard() {
 
               {/* Ad Banner */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex justify-center">
-                <GoogleAd slot="1234567892" style={{ display: 'block', width: '468px', height: '60px' }} />
+                <GoogleAd slot="1234567892" style={{ display: 'block', width: '100%', maxWidth: '468px', height: '60px' }} />
               </div>
 
               {/* Driver info card */}
@@ -1031,8 +1031,8 @@ export default function PassengerDashboard() {
           )}
 
           {/* Google AdSense Banner */}
-          <div className="mt-8 flex justify-center">
-            <GoogleAd slot="1234567890" style={{ display: 'block', width: '728px', height: '90px' }} />
+          <div className="mt-8 flex justify-center px-2">
+            <GoogleAd slot="1234567890" style={{ display: 'block', width: '100%', maxWidth: '728px', height: '90px' }} />
           </div>
 
         </main>
